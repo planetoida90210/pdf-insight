@@ -1,6 +1,10 @@
 [
   { "name": "missing summary", "path": ["summary"], "delete": true },
   { "name": "empty summary", "path": ["summary"], "value": "" },
+  { "name": "blank title", "path": ["document", "title"], "value": " " },
+  { "name": "empty organization", "path": ["entities", "organizations"], "value": [""] },
+  { "name": "empty person", "path": ["entities", "people"], "value": [""] },
+  { "name": "empty keyword", "path": ["keywords"], "value": [""] },
   { "name": "missing entities", "path": ["entities"], "delete": true },
   { "name": "unknown document type", "path": ["document", "type"], "value": "kontrakt" },
   { "name": "language not ISO 639-1", "path": ["document", "language"], "value": "pol" },
