@@ -335,11 +335,9 @@ summary {
   list-style: none;
 }
 
+/* Na wąskim ekranie przyciski schodzą pod nazwę pliku zamiast ściskać ją do kilku liter. */
 .history li {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: center;
-  gap: var(--space-3);
+  justify-content: space-between;
   padding: var(--space-3);
   border: var(--line);
 }

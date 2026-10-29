@@ -27,25 +27,27 @@ export function HistoryPanel({ entries, onOpen, onDelete, onClear }: HistoryPane
             {entries.map((entry) => {
               const { fileName, type } = entry.result.document;
               return (
-                <li key={entry.id}>
+                <li key={entry.id} className="row">
                   <div>
                     <p>{fileName}</p>
                     <p className="muted">
                       {DOCUMENT_TYPE_LABELS[type]}, {formatDateTime(entry.savedAt)}
                     </p>
                   </div>
-                  <Button aria-label={`Otwórz ${fileName}`} onClick={() => onOpen(entry)}>
-                    Otwórz
-                  </Button>
-                  <Button
-                    aria-label={`Usuń ${fileName}`}
-                    onClick={() => {
-                      onDelete(entry.id);
-                      focusHeading();
-                    }}
-                  >
-                    Usuń
-                  </Button>
+                  <div className="row">
+                    <Button aria-label={`Otwórz ${fileName}`} onClick={() => onOpen(entry)}>
+                      Otwórz
+                    </Button>
+                    <Button
+                      aria-label={`Usuń ${fileName}`}
+                      onClick={() => {
+                        onDelete(entry.id);
+                        focusHeading();
+                      }}
+                    >
+                      Usuń
+                    </Button>
+                  </div>
                 </li>
               );
             })}
