@@ -29,12 +29,8 @@ def client(app: FastAPI) -> TestClient:
     return TestClient(app)
 
 
-def test_health_names_the_provider(client: TestClient) -> None:
-    assert client.get("/api/health").json() == {
-        "status": "ok",
-        "provider": "openrouter",
-        "model": "anthropic/claude-haiku-5.5",
-    }
+def test_health_answers_ok(client: TestClient) -> None:
+    assert client.get("/api/health").json() == {"status": "ok"}
 
 
 def test_unknown_route_uses_error_envelope(client: TestClient) -> None:

@@ -19,7 +19,7 @@ from app.cache import TtlCache
 from app.config import Settings, get_settings
 from app.errors import ApiError, ErrorCode
 from app.extraction import Extraction, extract_pdf
-from app.llm import PROVIDER, OpenRouter, create_llm
+from app.llm import OpenRouter, create_llm
 from app.ratelimit import DailyCounter, SlidingWindowLimiter, client_ip
 from app.schema import AnalysisResult, AnalyzeRequest, ExtractResponse
 from app.upload import read_pdf_upload
@@ -84,7 +84,7 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
-        return {"status": "ok", "provider": PROVIDER, "model": settings.llm_model}
+        return {"status": "ok"}
 
     @app.post("/api/extract")
     async def extract(request: Request, file: Annotated[UploadFile, File()]) -> ExtractResponse:
