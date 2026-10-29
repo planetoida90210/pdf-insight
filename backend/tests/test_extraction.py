@@ -59,6 +59,13 @@ def test_no_readable_text_raises_no_text() -> None:
     assert raised.value.code == ErrorCode.NO_TEXT
 
 
+def test_damaged_pdf_that_pdfium_opens_is_invalid() -> None:
+    damaged = text_pdf("Umowa").replace(b"/FlateDecode", b"/LZWDecode", 1)
+    with pytest.raises(ApiError) as raised:
+        extract(damaged)
+    assert raised.value.code == ErrorCode.INVALID_PDF
+
+
 def test_deadline_stops_extraction() -> None:
     with pytest.raises(ApiError) as raised:
         extract_pdf(text_pdf("a"), "a.pdf", Settings(), vision=None, deadline=0)

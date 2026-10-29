@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pdfplumber
 import pypdfium2 as pdfium
+from pdfplumber.utils.exceptions import PdfminerException
 from PIL import Image
 
 from app.config import Settings
@@ -47,7 +48,11 @@ def extract_pdf(
     deadline: float,
 ) -> Extraction:
     """The visible text of every page and its warnings; ApiError when the file cannot be read."""
-    result = _read_pages(data, file_name, settings, vision, deadline)
+    try:
+        result = _read_pages(data, file_name, settings, vision, deadline)
+    except PdfminerException as error:
+        # pdfium repairs some damaged files that pdfminer still cannot parse.
+        raise ApiError(ErrorCode.INVALID_PDF) from error
     if not result.pages:
         raise ApiError(ErrorCode.NO_TEXT)
     if injection := find_injection(result.text):
