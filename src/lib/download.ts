@@ -5,9 +5,13 @@ export function toJson(result: AnalysisResult): string {
   return JSON.stringify(result, null, 2);
 }
 
-// The name comes from the user, so characters not allowed in file names become `_`.
+// The name comes from the user: format characters, which change how it reads (U+202E shows
+// "a<U+202E>txt.pdf" as "afdp.txt"), are dropped; characters not allowed in file names become `_`.
 export function insightFileName(pdfName: string): string {
-  const base = pdfName.replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|\p{Cc}]/gu, '_');
+  const base = pdfName
+    .replace(/\p{Cf}/gu, '')
+    .replace(/\.pdf$/i, '')
+    .replace(/[\\/:*?"<>|\p{Cc}]/gu, '_');
   return `${base}.insight.json`;
 }
 
