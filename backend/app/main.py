@@ -56,14 +56,17 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
         code = ErrorCode.NOT_FOUND if error.status_code == 404 else ErrorCode.INVALID_REQUEST
         return error_response(ApiError(code))
 
-    # Added before CORS, so CORS wraps it and 413/500 responses still carry CORS headers:
+    # Added before CORS, so CORS wraps it and 413/429/500 responses still carry CORS headers:
     # the browser can then show the Polish message instead of a network error.
     @app.middleware("http")
     async def guard(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        if request.method == "POST" and (error := _body_size_error(request, settings)):
-            return error_response(error)
+        # Both checks run before FastAPI reads the body, so a rejected upload is never parsed.
+        if request.method == "POST":
+            rejected = _body_size_error(request, settings) or _rate_limit_error(request, limiter)
+            if rejected:
+                return error_response(rejected)
         try:
             return await call_next(request)
         except Exception as error:
@@ -78,17 +81,12 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
         expose_headers=["Retry-After"],
     )
 
-    def check_rate_limit(request: Request) -> None:
-        if retry_after := limiter.hit(client_ip(request)):
-            raise ApiError(ErrorCode.RATE_LIMITED, headers={"Retry-After": str(retry_after)})
-
     @app.get("/api/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.post("/api/extract")
-    async def extract(request: Request, file: Annotated[UploadFile, File()]) -> ExtractResponse:
-        check_rate_limit(request)
+    async def extract(file: Annotated[UploadFile, File()]) -> ExtractResponse:
         data = await read_pdf_upload(file, settings)
         file_name = (file.filename or "document.pdf")[:FILE_NAME_MAX]
         vision = llm if settings.vision_fallback else None
@@ -112,8 +110,7 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
         )
 
     @app.post("/api/analyze")
-    async def analyze(request: Request, body: AnalyzeRequest) -> AnalysisResult:
-        check_rate_limit(request)
+    async def analyze(body: AnalyzeRequest) -> AnalysisResult:
         extraction = cache.get(body.extraction_id)
         if extraction is None:
             raise ApiError(ErrorCode.EXTRACTION_NOT_FOUND)
@@ -147,6 +144,12 @@ def _body_size_error(request: Request, settings: Settings) -> ApiError | None:
         return ApiError(ErrorCode.INVALID_REQUEST)
     if int(length) > settings.max_file_bytes + MULTIPART_OVERHEAD:
         return ApiError(ErrorCode.FILE_TOO_LARGE, max_mb=settings.max_file_mb)
+    return None
+
+
+def _rate_limit_error(request: Request, limiter: SlidingWindowLimiter) -> ApiError | None:
+    if retry_after := limiter.hit(client_ip(request)):
+        return ApiError(ErrorCode.RATE_LIMITED, headers={"Retry-After": str(retry_after)})
     return None
 
 

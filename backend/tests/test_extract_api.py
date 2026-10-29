@@ -61,11 +61,10 @@ def test_long_file_name_is_cut_to_the_schema_limit() -> None:
     assert response.json()["fileName"] == "a" * 255
 
 
-def test_rate_limited_with_retry_after() -> None:
+def test_rate_limit_answers_before_the_upload_is_parsed() -> None:
     client, _ = make_client(rate_limit_per_minute=1)
-    files = {"file": ("a.pdf", text_pdf(PAGE))}
-    assert client.post("/api/extract", files=files).status_code == 200
-    second = client.post("/api/extract", files=files)
+    assert client.post("/api/extract", files={"file": ("a.pdf", text_pdf(PAGE))}).status_code == 200
+    second = client.post("/api/extract", content=b"not a multipart body")
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "RATE_LIMITED"
     assert int(second.headers["retry-after"]) > 0
