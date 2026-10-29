@@ -1,11 +1,14 @@
-"""Runtime settings, read from environment variables (documented in .env.example)."""
+"""Runtime settings, read from environment variables (documented in .env.example), and logging."""
 
+import logging
 from functools import lru_cache
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOG_FORMAT = "%(levelname)s %(name)s %(message)s"
+# Warnings from these libraries quote raw values from the PDF (content-stream operands, metadata).
+PDF_PARSER_LOGGERS = ("pdfminer", "pdfplumber")
 
 
 class Settings(BaseSettings):
@@ -46,3 +49,10 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def configure_logging() -> None:
+    """Sizes, timings and codes only: no document text may reach the log."""
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+    for name in PDF_PARSER_LOGGERS:
+        logging.getLogger(name).setLevel(logging.CRITICAL)

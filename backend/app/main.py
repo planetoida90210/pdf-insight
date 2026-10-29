@@ -15,7 +15,7 @@ from starlette.exceptions import HTTPException
 
 from app.analysis import analyze_extraction
 from app.cache import TtlCache
-from app.config import LOG_FORMAT, Settings, get_settings
+from app.config import Settings, configure_logging, get_settings
 from app.errors import ApiError, ErrorCode
 from app.extraction import Extraction, read_pdf
 from app.llm import OpenRouter, create_llm
@@ -24,7 +24,7 @@ from app.schema import AnalysisResult, AnalyzeRequest, ExtractResponse
 from app.upload import read_pdf_upload
 from app.worker import run_isolated
 
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 # Room for the multipart framing around the file in the Content-Length check.

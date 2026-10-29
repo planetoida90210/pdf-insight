@@ -9,7 +9,7 @@ from multiprocessing.connection import Connection
 from pathlib import Path
 from typing import Any
 
-from app.config import LOG_FORMAT
+from app.config import configure_logging
 from app.errors import ApiError, ErrorCode
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ def run_isolated[T](task: Callable[..., T], *args: Any, timeout: float, memory_m
 
 
 def _run(sender: Connection, memory_mb: int, task: Callable[..., Any], args: Any) -> None:
-    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+    configure_logging()
     _limit_memory(memory_mb * 1024 * 1024)
     try:
         sender.send((True, task(*args)))
