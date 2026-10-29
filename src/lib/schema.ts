@@ -1,8 +1,9 @@
 import { z } from 'zod';
 
-// Lustro modeli Pydantic z backendu. Wspólne fikstury w schema/fixtures pilnują, żeby się nie rozjechały.
+// Mirror of the backend's Pydantic models; the shared cases in schema/fixtures keep them in step.
 
-// CSP blokuje eval. Bez tego Zod przy pierwszej walidacji próbuje new Function i przeglądarka zgłasza naruszenie CSP.
+// The CSP blocks eval. Without this, Zod probes new Function on its first parse and the browser
+// reports a CSP violation.
 z.config({ jitless: true });
 
 const nonEmpty = z.string().trim().min(1);

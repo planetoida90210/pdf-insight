@@ -20,7 +20,7 @@ export function useAnalysis(onResult: (result: AnalysisResult) => void) {
     void run({ file, step: 0, extraction: null });
   }
 
-  // Ponawia tylko krok, który się nie udał. Po błędzie analizy zachowany odczyt tekstu jest użyty ponownie.
+  // Retries only the failed step: after an analysis error the kept extraction is reused.
   function retry() {
     if (state.phase !== 'error') return;
     void run({ file: state.file, step: state.step, extraction: state.extraction });

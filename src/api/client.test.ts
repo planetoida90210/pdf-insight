@@ -7,14 +7,14 @@ const envelope = (code: string) => ({ error: { code, message: 'Komunikat serwera
 const signal = () => new AbortController().signal;
 
 describe('errorFromResponse', () => {
-  it('mapuje kod z koperty błędu na polski komunikat', () => {
+  it('maps the envelope code to a Polish message', () => {
     const error = errorFromResponse(415, envelope('UNSUPPORTED_TYPE'), null);
     expect(error.code).toBe('UNSUPPORTED_TYPE');
     expect(error.message).toBe('To nie jest plik PDF.');
     expect(error.retryable).toBe(false);
   });
 
-  it('mapuje INVALID_REQUEST i NOT_FOUND na polskie komunikaty', () => {
+  it('maps INVALID_REQUEST and NOT_FOUND to Polish messages', () => {
     const invalid = errorFromResponse(400, envelope('INVALID_REQUEST'), null);
     expect(invalid.code).toBe('INVALID_REQUEST');
     expect(invalid.message).toBe('Serwer odrzucił żądanie.');
@@ -26,28 +26,28 @@ describe('errorFromResponse', () => {
     expect(missing.retryable).toBe(true);
   });
 
-  it('oznacza błędy przejściowe jako możliwe do ponowienia', () => {
+  it('marks transient errors as retryable', () => {
     expect(errorFromResponse(503, envelope('AI_UNAVAILABLE'), null).retryable).toBe(true);
     expect(errorFromResponse(502, envelope('AI_INVALID_RESPONSE'), null).retryable).toBe(true);
     expect(errorFromResponse(404, envelope('EXTRACTION_NOT_FOUND'), null).retryable).toBe(true);
   });
 
-  it('podaje czas oczekiwania z nagłówka Retry-After', () => {
+  it('gives the wait time from the Retry-After header', () => {
     expect(errorFromResponse(429, envelope('RATE_LIMITED'), '30').message).toBe(
       'Za dużo zapytań, spróbuj za 30 s.',
     );
-    expect(errorFromResponse(429, envelope('RATE_LIMITED'), 'jutro').message).toBe(
+    expect(errorFromResponse(429, envelope('RATE_LIMITED'), 'tomorrow').message).toBe(
       'Za dużo zapytań, odczekaj chwilę.',
     );
   });
 
-  it('bez znanego kodu korzysta ze statusu HTTP', () => {
+  it('falls back to the HTTP status without a known code', () => {
     expect(errorFromResponse(413, '<html>Payload Too Large</html>', null).code).toBe(
       'FILE_TOO_LARGE',
     );
     expect(errorFromResponse(429, null, null).code).toBe('RATE_LIMITED');
     expect(errorFromResponse(504, null, null).code).toBe('TIMEOUT');
-    expect(errorFromResponse(500, envelope('NIEZNANY'), null).code).toBe('INTERNAL');
+    expect(errorFromResponse(500, envelope('UNKNOWN'), null).code).toBe('INTERNAL');
   });
 });
 
@@ -61,7 +61,7 @@ describe('analyzeExtraction', () => {
     vi.unstubAllGlobals();
   });
 
-  it('wysyła identyfikator i zwraca zwalidowany wynik', async () => {
+  it('sends the id and returns the validated result', async () => {
     const fetchMock = vi.fn(() => Promise.resolve(Response.json(umowa)));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -74,14 +74,14 @@ describe('analyzeExtraction', () => {
     );
   });
 
-  it('odrzuca wynik niezgodny ze schematem', async () => {
+  it('rejects a result that does not match the schema', async () => {
     vi.stubGlobal('fetch', () => Promise.resolve(Response.json({ ...umowa, summary: '' })));
     await expect(analyzeExtraction('abc', signal())).rejects.toMatchObject({
       code: 'INVALID_RESULT',
     });
   });
 
-  it('zamienia odpowiedź z błędem na AppError', async () => {
+  it('turns an error response into an AppError', async () => {
     vi.stubGlobal('fetch', () =>
       Promise.resolve(Response.json(envelope('AI_UNAVAILABLE'), { status: 503 })),
     );
@@ -90,7 +90,7 @@ describe('analyzeExtraction', () => {
     });
   });
 
-  it('rozróżnia brak sieci i anulowanie przez użytkownika', async () => {
+  it('tells a network failure from a cancel', async () => {
     vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed to fetch')));
     await expect(analyzeExtraction('abc', signal())).rejects.toMatchObject({ code: 'NETWORK' });
 
@@ -103,7 +103,7 @@ describe('analyzeExtraction', () => {
     expect(error).toMatchObject({ code: 'ABORTED' });
   });
 
-  it('anulowanie w trakcie czytania odpowiedzi daje ABORTED, a nie INVALID_RESULT', async () => {
+  it('a cancel while the body is read gives ABORTED, not INVALID_RESULT', async () => {
     const controller = new AbortController();
     const response = Response.json(umowa);
     vi.spyOn(response, 'json').mockImplementation(() => {

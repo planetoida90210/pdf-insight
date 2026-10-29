@@ -14,7 +14,7 @@ type HistoryPanelProps = {
 export function HistoryPanel({ entries, onOpen, onDelete, onClear }: HistoryPanelProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
-  // Usunięty przycisk zabrałby fokus ze sobą, więc fokus wraca na nagłówek historii.
+  // A deleted button would take focus with it, so focus returns to the history heading.
   const focusHeading = () => headingRef.current?.focus();
 
   return (

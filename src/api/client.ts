@@ -11,7 +11,7 @@ import {
 // the server's TIMEOUT answer, and a result the server finished at its limit still arrives.
 const REQUEST_TIMEOUT_MS = 150_000;
 
-// Kod HTTP decyduje tylko wtedy, gdy odpowiedź nie ma koperty z naszym kodem błędu.
+// The HTTP status decides only when the body has no error envelope with a known code.
 const CODE_BY_STATUS: Partial<Record<number, ErrorCode>> = {
   413: 'FILE_TOO_LARGE',
   429: 'RATE_LIMITED',
@@ -31,7 +31,7 @@ function errorCode(status: number, body: unknown): ErrorCode {
   return isErrorCode(code) ? code : (CODE_BY_STATUS[status] ?? 'INTERNAL');
 }
 
-// Komunikat zawsze pochodzi z naszej mapy kodów, więc treść od serwera nie trafia do interfejsu.
+// The message always comes from our own code table, so no text from the server reaches the UI.
 export function errorFromResponse(
   status: number,
   body: unknown,
@@ -45,7 +45,7 @@ export function errorFromResponse(
   return new AppError(code);
 }
 
-// Ciało błędu z proxy bywa HTML-em, więc nieczytelne ciało traktujemy jak jego brak.
+// A proxy may answer with an HTML error page, so a body that is not JSON counts as no body.
 async function send(
   path: string,
   init: RequestInit,
@@ -84,7 +84,7 @@ export function extractText(file: File, signal: AbortSignal): Promise<ExtractRes
   return request('/api/extract', { method: 'POST', body }, extractResponseSchema, signal);
 }
 
-// Wynik AI jest walidowany schematem przed wyświetleniem (F-04).
+// The AI result is validated against the schema before it is shown (F-04).
 export function analyzeExtraction(
   extractionId: string,
   signal: AbortSignal,

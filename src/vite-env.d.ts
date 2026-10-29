@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-// Nieznane klucze import.meta.env są błędem typów zamiast `any`.
+// Unknown import.meta.env keys are a type error instead of `any`.
 interface ViteTypeOptions {
   strictImportMetaEnv: unknown;
 }

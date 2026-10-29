@@ -25,7 +25,7 @@ export function PageThumbnails({ file, result }: PageThumbnailsProps) {
         if (!cancelled) setFailed(true);
       },
     );
-    // Zamknięcie dokumentu zwalnia też worker pdf.js, także gdy otwieranie jeszcze trwa.
+    // Destroying the document also frees its pdf.js worker, even while it is still opening.
     return () => {
       cancelled = true;
       void opening.then(

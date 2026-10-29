@@ -1,4 +1,4 @@
 dist/
 package-lock.json
-# Python ma własny formatter (ruff)
+# Python is formatted by ruff
 backend/

@@ -1,14 +1,14 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// GitHub Pages nie pozwala ustawić nagłówków, więc CSP trafia do <meta>. Tylko w buildzie:
-// serwer deweloperski Vite wstrzykuje skrypty i style inline, które ta polityka by zablokowała.
+// GitHub Pages cannot set response headers, so the CSP goes into a <meta> tag. Build only:
+// the Vite dev server injects inline scripts and styles that this policy would block.
 function contentSecurityPolicy(apiUrl: string | undefined): Plugin {
   return {
     name: 'content-security-policy',
     apply: 'build',
     transformIndexHtml() {
-      // Bez adresu API aplikacja nie wyśle żadnego żądania, więc build się przerywa.
+      // Without the API address the app cannot send a single request, so the build stops.
       if (!apiUrl) throw new Error('VITE_API_URL is required for the build');
       const content = [
         "default-src 'self'",
@@ -28,7 +28,7 @@ function contentSecurityPolicy(apiUrl: string | undefined): Plugin {
   };
 }
 
-// GitHub Pages serwuje aplikację spod https://<user>.github.io/pdf-insight/
+// GitHub Pages serves the app from https://<user>.github.io/pdf-insight/
 export default defineConfig(({ mode }) => ({
   base: '/pdf-insight/',
   plugins: [react(), contentSecurityPolicy(loadEnv(mode, '.').VITE_API_URL)],

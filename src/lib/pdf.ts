@@ -1,5 +1,6 @@
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist';
-// Import `?url` daje adres workera z hashem i prefiksem `base`, więc działa także pod /pdf-insight/ na GitHub Pages.
+// The `?url` import gives the worker's hashed URL with the `base` prefix, so it also loads
+// under /pdf-insight/ on GitHub Pages.
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { MAX_FILE_MB } from './config';
 import { AppError } from './errors';
@@ -10,7 +11,7 @@ const PDF_SIGNATURE = '%PDF-';
 
 type FileInfo = Pick<File, 'name' | 'type' | 'size'>;
 
-// Szybkie sprawdzenie bez czytania pliku. Część systemów nie podaje typu MIME, wtedy decyduje rozszerzenie.
+// Quick check without reading the file. Some systems send no MIME type; then the extension decides.
 export function checkFileInfo(file: FileInfo): AppError | null {
   const looksLikePdf =
     file.type === 'application/pdf' || (file.type === '' && /\.pdf$/i.test(file.name));
@@ -25,7 +26,7 @@ export async function hasPdfSignature(file: Blob): Promise<boolean> {
   return String.fromCharCode(...head) === PDF_SIGNATURE;
 }
 
-// pdf.js (~1 MB) ładujemy dopiero przy pierwszym pliku, żeby nie spowalniać startu strony.
+// pdf.js (~1 MB) loads with the first file, so it does not slow down the page start.
 async function loadPdfjs() {
   const pdfjs = await import('pdfjs-dist');
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -38,14 +39,14 @@ export async function openPdf(file: File): Promise<PDFDocumentProxy> {
   try {
     return await task.promise;
   } catch (error) {
-    // Każde otwarcie ma własny worker pdf.js; bez destroy() zostaje on w pamięci.
+    // Every open has its own pdf.js worker; without destroy() it stays in memory.
     void task.destroy();
     if (error instanceof pdfjs.PasswordException) throw new AppError('ENCRYPTED_PDF');
     throw new AppError('INVALID_PDF');
   }
 }
 
-// Pełna walidacja przed wysyłką: typ, rozmiar, sygnatura `%PDF-` i to, czy pdf.js potrafi plik otworzyć.
+// Full check before upload: type, size, the `%PDF-` signature and whether pdf.js can open it.
 export async function validatePdf(file: File): Promise<void> {
   const infoError = checkFileInfo(file);
   if (infoError) throw infoError;
@@ -55,7 +56,7 @@ export async function validatePdf(file: File): Promise<void> {
   await pdf.loadingTask.destroy();
 }
 
-// Zwraca RenderTask, żeby komponent mógł przerwać rysowanie przy odmontowaniu.
+// Returns the RenderTask so the component can cancel the render on unmount.
 export function renderPage(
   page: PDFPageProxy,
   canvas: HTMLCanvasElement,

@@ -243,7 +243,7 @@ summary {
   color: var(--color-muted);
 }
 
-/* Słowa dzieli tylko ostatnia kolumna (kontekst); inaczej wąska tabela tnie kody walut na litery. */
+/* Only the last column (context) breaks words; otherwise a narrow table splits currency codes. */
 .table :is(th, td):not(:last-child) {
   overflow-wrap: normal;
 }
@@ -256,7 +256,7 @@ summary {
   font-variant-numeric: tabular-nums;
 }
 
-/* Pole bierze tyle miejsca, ile potrzebuje jego wartość, więc nazwa pliku nie łamie się w wąskiej kolumnie. */
+/* Each field takes the width its value needs, so the file name does not break in a narrow column. */
 .key-values {
   display: flex;
   flex-wrap: wrap;
@@ -319,7 +319,7 @@ summary {
   gap: var(--space-2);
 }
 
-/* Fokus ustawiany skryptem po „Strona N” ma być widoczny także po kliknięciu myszą. */
+/* Focus set by script after "Strona N" must also show after a mouse click. */
 .thumb:focus {
   outline: var(--focus-ring);
   outline-offset: var(--focus-offset);
@@ -340,7 +340,7 @@ summary {
   list-style: none;
 }
 
-/* Na wąskim ekranie przyciski schodzą pod nazwę pliku zamiast ściskać ją do kilku liter. */
+/* On a narrow screen the buttons wrap below the file name instead of squeezing it. */
 .history li {
   justify-content: space-between;
   padding: var(--space-3);
@@ -351,7 +351,7 @@ summary {
   cursor: pointer;
 }
 
-/* Wiersze muszą się zawijać: najdłuższy z nich wyznacza minimalną szerokość siatki, czyli całej strony. */
+/* Lines must wrap: the longest one would set the minimum width of the grid and the page. */
 .json {
   max-height: var(--json-max-height);
   margin-top: var(--space-3);

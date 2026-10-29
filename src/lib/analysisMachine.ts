@@ -6,7 +6,7 @@ import type { AnalysisResult, ExtractResponse } from './schema';
 
 export const PIPELINE_STEPS = ['Wgranie PDF', 'Odczyt tekstu', 'Analiza AI', 'Wynik'] as const;
 
-// Krok, na którym przebieg trwa albo się zatrzymał. Ponowienie startuje od tego kroku.
+// The step a run is on or stopped at. A retry starts from this step.
 export type RunStep = 0 | 1 | 2;
 
 export type Run = { file: File; step: RunStep; extraction: ExtractResponse | null };
@@ -47,13 +47,13 @@ export function analysisReducer(state: AnalysisState, action: AnalysisAction): A
   }
 }
 
-// Walidacja → odczyt tekstu → analiza. Zwraca wynik albo null po błędzie lub anulowaniu.
+// Validation, text extraction, analysis. Returns the result, or null after an error or a cancel.
 export async function runPipeline(
   run: Run,
   signal: AbortSignal,
   dispatch: (action: AnalysisAction) => void,
 ): Promise<AnalysisResult | null> {
-  // Przerwany przebieg (anulowanie albo nowy plik) nie może już zmienić stanu.
+  // An aborted run (cancel or a new file) must not change the state any more.
   const update = (action: AnalysisAction) => {
     if (!signal.aborted) dispatch(action);
   };
@@ -72,7 +72,7 @@ export async function runPipeline(
     const extraction = run.extraction ?? (await extract());
     const result = await analyze(extraction).catch(async (error: unknown) => {
       if (!(error instanceof AppError && error.code === 'EXTRACTION_NOT_FOUND')) throw error;
-      // Tekst wygasł w pamięci serwera, więc plik idzie jeszcze raz. Tylko jedna taka próba.
+      // The text expired in the server's memory, so the file is sent again, once.
       return analyze(await extract());
     });
     update({ type: 'done', result });

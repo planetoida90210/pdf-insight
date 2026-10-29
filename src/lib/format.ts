@@ -20,7 +20,7 @@ export function formatAmount(value: number, currency: string): string {
   return new Intl.NumberFormat(LOCALE, { style: 'currency', currency }).format(value);
 }
 
-// Daty z wyniku to dni kalendarzowe bez strefy, więc formatujemy je w UTC, żeby nie przesunęły się o dzień.
+// Result dates are calendar days without a time zone; formatting in UTC keeps them on the same day.
 export function formatDate(isoDate: string): string {
   return new Intl.DateTimeFormat(LOCALE, { dateStyle: 'long', timeZone: 'UTC' }).format(
     new Date(`${isoDate}T00:00:00Z`),

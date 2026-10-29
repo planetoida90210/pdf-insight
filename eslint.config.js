@@ -22,7 +22,7 @@ export default defineConfig([
         {
           selector:
             "JSXAttribute[name.name='dangerouslySetInnerHTML'], Property[key.name='dangerouslySetInnerHTML']",
-          message: 'dangerouslySetInnerHTML jest zabronione (brief, sekcja 05).',
+          message: 'dangerouslySetInnerHTML is not allowed.',
         },
       ],
     },

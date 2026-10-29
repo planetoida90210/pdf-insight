@@ -1,11 +1,11 @@
 import type { AnalysisResult } from './schema';
 
-// Podgląd, kopiowanie i pobieranie używają tego samego tekstu, więc plik równa się podglądowi.
+// Preview, copy and download share this text, so the file equals the preview.
 export function toJson(result: AnalysisResult): string {
   return JSON.stringify(result, null, 2);
 }
 
-// Nazwa pochodzi od użytkownika, więc znaki niedozwolone w nazwach plików zamieniamy na „_”.
+// The name comes from the user, so characters not allowed in file names become `_`.
 export function insightFileName(pdfName: string): string {
   const base = pdfName.replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|\p{Cc}]/gu, '_');
   return `${base}.insight.json`;
@@ -17,6 +17,6 @@ export function downloadResult(result: AnalysisResult): void {
   link.href = url;
   link.download = insightFileName(result.document.fileName);
   link.click();
-  // Zwolnienie adresu dopiero po zakończeniu bieżącego zdarzenia, inaczej część przeglądarek przerywa pobieranie.
+  // Revoke after the current event; some browsers cancel the download otherwise.
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }

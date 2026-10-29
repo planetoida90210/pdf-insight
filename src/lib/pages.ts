@@ -22,7 +22,7 @@ export function pageElementId(page: number): string {
   return `page-${page}`;
 }
 
-// Przewinięcie korzysta z CSS scroll-behavior, więc respektuje prefers-reduced-motion.
+// The scroll uses CSS scroll-behavior, so it respects prefers-reduced-motion.
 export function focusPage(page: number): void {
   const element = document.getElementById(pageElementId(page));
   element?.scrollIntoView({ block: 'center' });

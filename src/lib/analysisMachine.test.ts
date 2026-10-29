@@ -39,7 +39,7 @@ const running: AnalysisState = {
 };
 
 describe('analysisReducer', () => {
-  it('start ustawia przebieg od podanego kroku', () => {
+  it('start sets the run at the given step', () => {
     const run: Run = { file, step: 2, extraction: extraction('e1') };
     expect(analysisReducer(IDLE, { type: 'start', run, startedAt: 5 })).toEqual({
       phase: 'running',
@@ -48,7 +48,7 @@ describe('analysisReducer', () => {
     });
   });
 
-  it('odczyt tekstu kasuje stary odczyt, a analiza go zapisuje', () => {
+  it('extracting clears the old extraction and analyzing stores the new one', () => {
     const extracting = analysisReducer(running, { type: 'extracting' });
     expect(extracting).toMatchObject({ step: 1, extraction: null });
     const analyzing = analysisReducer(extracting, {
@@ -58,7 +58,7 @@ describe('analysisReducer', () => {
     expect(analyzing).toMatchObject({ step: 2, extraction: { extractionId: 'e2' } });
   });
 
-  it('błąd zapamiętuje krok i odczyt, żeby ponowić tylko ten krok', () => {
+  it('a failure keeps the step and extraction, so only that step is retried', () => {
     const error = new AppError('AI_UNAVAILABLE');
     expect(analysisReducer(running, { type: 'fail', error })).toEqual({
       phase: 'error',
@@ -69,13 +69,13 @@ describe('analysisReducer', () => {
     });
   });
 
-  it('kończy się wynikiem i wraca do stanu pustego po resecie', () => {
+  it('ends with the result and returns to idle on reset', () => {
     const done = analysisReducer(running, { type: 'done', result });
     expect(done).toEqual({ phase: 'done', file, result });
     expect(analysisReducer(done, { type: 'reset' })).toBe(IDLE);
   });
 
-  it('ignoruje zdarzenia przebiegu poza fazą running', () => {
+  it('ignores run actions outside the running phase', () => {
     expect(analysisReducer(IDLE, { type: 'done', result })).toBe(IDLE);
     expect(analysisReducer(IDLE, { type: 'extracting' })).toBe(IDLE);
   });
@@ -93,7 +93,7 @@ describe('runPipeline', () => {
     vi.mocked(analyzeExtraction).mockReset().mockResolvedValue(result);
   });
 
-  it('przechodzi walidację, odczyt i analizę', async () => {
+  it('runs validation, extraction and analysis', async () => {
     const signal = new AbortController().signal;
     await expect(runPipeline({ file, step: 0, extraction: null }, signal, dispatch)).resolves.toBe(
       result,
@@ -103,7 +103,7 @@ describe('runPipeline', () => {
     expect(analyzeExtraction).toHaveBeenCalledWith('e1', signal);
   });
 
-  it('ponowienie analizy nie wysyła pliku drugi raz', async () => {
+  it('an analysis retry does not upload the file again', async () => {
     const run: Run = { file, step: 2, extraction: extraction('e1') };
     await runPipeline(run, new AbortController().signal, dispatch);
     expect(validatePdf).not.toHaveBeenCalled();
@@ -111,7 +111,7 @@ describe('runPipeline', () => {
     expect(types()).toEqual(['start', 'analyzing', 'done']);
   });
 
-  it('po wygaśnięciu odczytu wysyła plik ponownie, ale tylko raz', async () => {
+  it('uploads the file again once after the extraction expired', async () => {
     vi.mocked(extractText).mockResolvedValueOnce(extraction('e2'));
     vi.mocked(analyzeExtraction).mockRejectedValueOnce(notFound);
     const run: Run = { file, step: 2, extraction: extraction('e1') };
@@ -125,7 +125,7 @@ describe('runPipeline', () => {
     expect(actions.at(-1)).toEqual({ type: 'fail', error: notFound });
   });
 
-  it('po anulowaniu nie zmienia już stanu', async () => {
+  it('changes no state after a cancel', async () => {
     const controller = new AbortController();
     vi.mocked(validatePdf).mockImplementation(async () => {
       controller.abort();
@@ -137,7 +137,7 @@ describe('runPipeline', () => {
     expect(types()).toEqual(['start']);
   });
 
-  it('nieznany wyjątek zamienia na błąd INTERNAL', async () => {
+  it('turns an unknown exception into INTERNAL', async () => {
     vi.mocked(validatePdf).mockRejectedValue(new TypeError('chunk load failed'));
     await runPipeline({ file, step: 0, extraction: null }, new AbortController().signal, dispatch);
     expect(actions.at(-1)).toMatchObject({ type: 'fail', error: { code: 'INTERNAL' } });
@@ -145,7 +145,7 @@ describe('runPipeline', () => {
 });
 
 describe('statusMessage', () => {
-  it('opisuje fazę po polsku', () => {
+  it('describes the phase in Polish', () => {
     expect(statusMessage(IDLE)).toBe('Wybierz plik PDF.');
     expect(statusMessage({ ...running, step: 1 })).toBe('Trwa: Odczyt tekstu');
     expect(

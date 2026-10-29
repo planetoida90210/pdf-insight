@@ -19,7 +19,7 @@ export function PageThumbnail({ pdf, page, badges }: PageThumbnailProps) {
   const [visible, setVisible] = useState(false);
   const labels = badges.map((badge) => PAGE_BADGES[badge].label);
 
-  // Strona rysuje się dopiero, gdy zbliża się do widoku, więc długie dokumenty nie blokują przeglądarki.
+  // A page renders only when it nears the viewport, so long documents do not block the browser.
   useEffect(() => {
     const item = itemRef.current;
     if (visible || !item) return;
@@ -43,7 +43,7 @@ export function PageThumbnail({ pdf, page, badges }: PageThumbnailProps) {
         task = renderPage(proxy, canvas, THUMB_WIDTH_PX);
         return task.promise;
       })
-      // Anulowane rysowanie albo zamknięty dokument: miniatura zostaje pustym polem.
+      // Cancelled render or closed document: the thumbnail stays blank.
       .catch(() => undefined);
     return () => {
       cancelled = true;

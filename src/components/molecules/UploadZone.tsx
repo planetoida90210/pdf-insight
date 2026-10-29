@@ -20,7 +20,7 @@ export function UploadZone({ onFile }: UploadZoneProps) {
     setDragging(true);
   };
 
-  // dragleave przychodzi też przy wejściu kursora na element wewnątrz strefy.
+  // dragleave also fires when the pointer moves onto an element inside the zone.
   const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
     const { relatedTarget, currentTarget } = event;
     if (!(relatedTarget instanceof Node && currentTarget.contains(relatedTarget))) {

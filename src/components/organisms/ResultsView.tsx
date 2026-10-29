@@ -14,7 +14,7 @@ import { PageThumbnails } from './PageThumbnails';
 
 type ResultsViewProps = {
   result: AnalysisResult;
-  // Historia przechowuje tylko wynik, bez pliku, więc wtedy nie ma podglądu stron.
+  // History keeps the result without the file, so an opened entry has no page previews.
   file: File | null;
   onReset: () => void;
 };

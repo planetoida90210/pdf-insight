@@ -6,7 +6,7 @@ type PanelProps = {
   headingRef?: Ref<HTMLHeadingElement>;
 };
 
-// tabIndex={-1}: po zmianie widoku App przenosi fokus na ten nagłówek.
+// tabIndex={-1}: App moves focus to this heading when the view changes.
 export function Panel({ title, children, headingRef }: PanelProps) {
   return (
     <section className="panel">

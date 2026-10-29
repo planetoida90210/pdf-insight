@@ -20,7 +20,8 @@ export function App() {
 
   useEffect(refuseDropsOutsideZone, []);
 
-  // Po zmianie widoku fokus przechodzi na nagłówek nowego panelu, żeby klawiatura i czytnik ekranu nie zostały na usuniętym przycisku.
+  // On a view change focus moves to the new panel's heading, so keyboard and screen reader users
+  // are not left on a removed button.
   useEffect(() => {
     if (lastView.current === view) return;
     lastView.current = view;

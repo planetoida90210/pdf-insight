@@ -1,7 +1,7 @@
 import { DOCUMENT_TYPE_LABELS, EMPTY_TEXT, formatAmount, formatDate, languageName } from './format';
 import type { AnalysisResult } from './schema';
 
-// Opis bloków widoku wyniku. Komponenty tylko mapują te listy, więc treść i kolejność są w jednym miejscu.
+// The blocks of the result view. Components only map these lists, so labels and order live here.
 
 type Read<T> = (result: AnalysisResult) => T;
 

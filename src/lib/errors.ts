@@ -1,6 +1,6 @@
 import { MAX_FILE_MB } from './config';
 
-// Kody z koperty błędów backendu plus kody nadawane przez frontend (NETWORK, INVALID_RESULT, ABORTED).
+// Codes from the backend's error envelope plus the frontend's own (NETWORK, INVALID_RESULT, ABORTED).
 const MESSAGES = {
   FILE_TOO_LARGE: `Plik ma ponad ${MAX_FILE_MB} MB.`,
   UNSUPPORTED_TYPE: 'To nie jest plik PDF.',
@@ -24,7 +24,7 @@ const MESSAGES = {
 
 export type ErrorCode = keyof typeof MESSAGES;
 
-// Ponowienie nic nie zmieni, gdy problem leży w samym pliku albo w dziennym limicie.
+// A retry cannot help when the problem is the file itself or the daily limit.
 const FINAL_CODES: ReadonlySet<ErrorCode> = new Set([
   'FILE_TOO_LARGE',
   'UNSUPPORTED_TYPE',

@@ -43,7 +43,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      # build = tsc --noEmit + vite build, więc błąd typów zatrzymuje deploy
+      # build = tsc --noEmit + vite build, so a type error stops the deploy
       - run: npm run build
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}

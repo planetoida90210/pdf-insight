@@ -21,7 +21,7 @@ class MemoryStorage {
   }
 
   setItem(key: string, value: string): void {
-    if (value.length > this.quota) throw new DOMException('Brak miejsca', 'QuotaExceededError');
+    if (value.length > this.quota) throw new DOMException('Quota exceeded', 'QuotaExceededError');
     this.items.set(key, value);
   }
 
@@ -46,11 +46,11 @@ function withFileName(fileName: string): AnalysisResult {
 }
 
 describe('history', () => {
-  it('jest pusta bez zapisanych danych', () => {
+  it('is empty when nothing is stored', () => {
     expect(readHistory()).toEqual([]);
   });
 
-  it('dodaje najnowszy wynik na początek', () => {
+  it('puts the newest result first', () => {
     addToHistory(withFileName('a.pdf'));
     addToHistory(withFileName('b.pdf'));
     expect(readHistory().map((entry) => entry.result.document.fileName)).toEqual([
@@ -59,14 +59,14 @@ describe('history', () => {
     ]);
   });
 
-  it(`przechowuje najwyżej ${HISTORY_LIMIT} wyników`, () => {
+  it(`keeps at most ${HISTORY_LIMIT} results`, () => {
     for (let i = 0; i < HISTORY_LIMIT + 5; i++) addToHistory(withFileName(`${i}.pdf`));
     const entries = readHistory();
     expect(entries).toHaveLength(HISTORY_LIMIT);
     expect(entries[0]?.result.document.fileName).toBe(`${HISTORY_LIMIT + 4}.pdf`);
   });
 
-  it('usuwa jeden wpis i czyści całość', () => {
+  it('removes one entry and clears all', () => {
     addToHistory(withFileName('a.pdf'));
     const [newest] = addToHistory(withFileName('b.pdf'));
     expect(removeFromHistory(newest?.id ?? '').map((e) => e.result.document.fileName)).toEqual([
@@ -76,19 +76,19 @@ describe('history', () => {
     expect(readHistory()).toEqual([]);
   });
 
-  it('pomija uszkodzone wpisy i niepoprawny JSON', () => {
+  it('skips broken entries and invalid JSON', () => {
     const [valid] = addToHistory(result);
-    storage.setItem(KEY, JSON.stringify([valid, { id: 'x', savedAt: 'wczoraj', result: {} }]));
+    storage.setItem(KEY, JSON.stringify([valid, { id: 'x', savedAt: 'yesterday', result: {} }]));
     expect(readHistory()).toEqual([valid]);
 
-    storage.setItem(KEY, '{nie json');
+    storage.setItem(KEY, '{not json');
     expect(readHistory()).toEqual([]);
 
     storage.setItem(KEY, JSON.stringify({ not: 'array' }));
     expect(readHistory()).toEqual([]);
   });
 
-  it('przy braku miejsca usuwa najstarsze wpisy', () => {
+  it('drops the oldest entries when out of space', () => {
     addToHistory(withFileName('a.pdf'));
     addToHistory(withFileName('b.pdf'));
     storage.quota = (storage.getItem(KEY) ?? '').length;
@@ -98,16 +98,16 @@ describe('history', () => {
     expect(readHistory()).toEqual(entries);
   });
 
-  it('nie rzuca, gdy localStorage jest niedostępny', () => {
+  it('does not throw when localStorage is blocked', () => {
     vi.stubGlobal('localStorage', {
       getItem: () => {
-        throw new DOMException('Zablokowane', 'SecurityError');
+        throw new DOMException('Blocked', 'SecurityError');
       },
       setItem: () => {
-        throw new DOMException('Zablokowane', 'SecurityError');
+        throw new DOMException('Blocked', 'SecurityError');
       },
       removeItem: () => {
-        throw new DOMException('Zablokowane', 'SecurityError');
+        throw new DOMException('Blocked', 'SecurityError');
       },
     });
     expect(readHistory()).toEqual([]);

@@ -5,7 +5,7 @@ type TextListProps = {
   inline?: boolean;
 };
 
-// Klucz to indeks: lista się nie zmienia, a teksty mogą się powtarzać.
+// Index keys: the list never changes and its texts may repeat.
 export function TextList({ items, inline = false }: TextListProps) {
   return (
     <ul className={inline ? 'list list--inline' : 'list'}>

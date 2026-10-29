@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { refuseDropsOutsideZone } from './dropGuard';
 
-// Testy działają bez DOM, więc okno zastępuje zwykły EventTarget.
+// Tests run without a DOM, so a plain EventTarget stands in for window.
 const dragEvent = (type: string) =>
   Object.assign(new Event(type, { cancelable: true }), { dataTransfer: { dropEffect: 'copy' } });
 
@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe('refuseDropsOutsideZone', () => {
-  it('blokuje upuszczenie poza strefą, a po sprzątaniu przestaje', () => {
+  it('refuses drops outside the zone until cleaned up', () => {
     const stop = refuseDropsOutsideZone();
     const over = dragEvent('dragover');
     const drop = dragEvent('drop');
@@ -33,7 +33,7 @@ describe('refuseDropsOutsideZone', () => {
     expect(later.defaultPrevented).toBe(false);
   });
 
-  it('nie rusza zdarzenia, które obsłużyła strefa', () => {
+  it('leaves events the zone handled alone', () => {
     target.addEventListener('dragover', (event) => event.preventDefault());
     const stop = refuseDropsOutsideZone();
     const over = dragEvent('dragover');

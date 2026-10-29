@@ -1,7 +1,7 @@
 node_modules/
 dist/
 
-# Sekrety: klucze API tylko w zmiennych środowiskowych serwera
+# Secrets: API keys live only in the server's environment variables
 .env
 .env.*
 !.env.example
