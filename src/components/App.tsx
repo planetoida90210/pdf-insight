@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { FALLBACK_PROVIDER_LABEL, fetchHealth, PROVIDER_LABELS } from '../api/client';
 import { useAnalysis } from '../hooks/useAnalysis';
 import {
   addToHistory,
@@ -7,7 +8,7 @@ import {
   removeFromHistory,
   type HistoryEntry,
 } from '../lib/history';
-import type { AnalysisPhase } from '../lib/analysisMachine';
+import { statusMessage, type AnalysisState } from '../lib/analysisMachine';
 import type { AnalysisResult } from '../lib/schema';
 import { EmptyState } from './EmptyState';
 import { ErrorPanel } from './ErrorPanel';
@@ -21,7 +22,7 @@ type MainView = 'empty' | 'progress' | 'error' | 'done' | 'history';
 
 function mainViewOf(
   historyView: { result: AnalysisResult } | null,
-  phase: AnalysisPhase,
+  phase: AnalysisState['phase'],
 ): MainView {
   if (historyView) return 'history';
   if (phase === 'running') return 'progress';
@@ -46,22 +47,22 @@ function focusViewHeading(view: MainView): void {
 }
 
 export function App() {
-  const { state, elapsedMs, providerLabel, statusText, start, retry, cancel, reset } =
-    useAnalysis();
   const [history, setHistory] = useState<HistoryEntry[]>(() => readHistory());
   const [historyView, setHistoryView] = useState<{
     result: AnalysisResult;
   } | null>(null);
-  const savedResultRef = useRef<AnalysisResult | null>(null);
+  const [providerLabel, setProviderLabel] = useState(FALLBACK_PROVIDER_LABEL);
+  const { state, start, retry, reset } = useAnalysis((result) => setHistory(addToHistory(result)));
+  const statusText = statusMessage(state);
   const viewRef = useRef<MainView | null>(null);
 
   useEffect(() => {
-    if (state.phase !== 'done' || !state.result) return;
-    if (savedResultRef.current === state.result) return;
-    savedResultRef.current = state.result;
-    setHistory(addToHistory(state.result));
-    setHistoryView(null);
-  }, [state.phase, state.result]);
+    const controller = new AbortController();
+    void fetchHealth(controller.signal).then((provider) => {
+      if (provider) setProviderLabel(PROVIDER_LABELS[provider]);
+    });
+    return () => controller.abort();
+  }, []);
 
   const view = mainViewOf(historyView, state.phase);
 
@@ -78,13 +79,11 @@ export function App() {
   }, [view]);
 
   const onReset = () => {
-    savedResultRef.current = null;
     setHistoryView(null);
     reset();
   };
 
   const onOpenHistory = (entry: HistoryEntry) => {
-    savedResultRef.current = null;
     reset();
     setHistoryView({ result: entry.result });
   };
@@ -94,19 +93,19 @@ export function App() {
   let main: ReactNode;
   if (historyView) {
     main = <ResultsView result={historyView.result} file={null} onReset={onReset} />;
-  } else if (state.phase === 'running' && state.file) {
+  } else if (state.phase === 'running') {
     main = (
       <ProgressPanel
         step={state.step}
         statusText={statusText}
-        elapsedMs={elapsedMs}
+        startedAt={state.startedAt}
         fileName={state.file.name}
-        onCancel={cancel}
+        onCancel={reset}
       />
     );
-  } else if (state.phase === 'error' && state.error) {
+  } else if (state.phase === 'error') {
     main = <ErrorPanel error={state.error} onRetry={retry} onChooseAnother={onReset} />;
-  } else if (state.phase === 'done' && state.result) {
+  } else if (state.phase === 'done') {
     main = <ResultsView result={state.result} file={state.file} onReset={onReset} />;
   } else {
     main = <EmptyState providerLabel={providerLabel} onFile={start} />;

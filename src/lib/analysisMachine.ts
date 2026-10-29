@@ -1,107 +1,96 @@
-import type { AppError } from './errors';
+import { analyzeExtraction, extractText } from '../api/client';
+import { AppError } from './errors';
+import { validatePdf } from './pdf';
 import type { AnalysisResult, ExtractResponse } from './schema';
 
 export const PIPELINE_STEPS = ['Wgranie PDF', 'Odczyt tekstu', 'Analiza AI', 'Wynik'] as const;
 
-export type PipelineStepIndex = 0 | 1 | 2 | 3;
+// Krok, na którym przebieg trwa albo się zatrzymał. Ponowienie startuje od tego kroku.
+export type RunStep = 0 | 1 | 2;
 
-export type AnalysisPhase = 'idle' | 'running' | 'error' | 'done';
+export type Run = { file: File; step: RunStep; extraction: ExtractResponse | null };
 
-export type AnalysisState = {
-  phase: AnalysisPhase;
-  step: PipelineStepIndex;
-  file: File | null;
-  extraction: ExtractResponse | null;
-  result: AnalysisResult | null;
-  error: AppError | null;
-  failedStep: PipelineStepIndex | null;
-  startedAt: number | null;
-};
+export type AnalysisState =
+  | { phase: 'idle' }
+  | ({ phase: 'running'; startedAt: number } & Run)
+  | ({ phase: 'error'; error: AppError } & Run)
+  | { phase: 'done'; file: File; result: AnalysisResult };
 
 export type AnalysisAction =
-  | { type: 'start'; file: File; startedAt: number }
-  | { type: 'retry'; fromStep: PipelineStepIndex; startedAt: number }
-  | { type: 'set_step'; step: PipelineStepIndex }
-  | { type: 'extraction_ok'; extraction: ExtractResponse }
+  | { type: 'start'; run: Run; startedAt: number }
+  | { type: 'extracting' }
+  | { type: 'analyzing'; extraction: ExtractResponse }
   | { type: 'done'; result: AnalysisResult }
-  | { type: 'fail'; error: AppError; failedStep: PipelineStepIndex }
-  | { type: 'reset' }
-  | { type: 'abort' };
+  | { type: 'fail'; error: AppError }
+  | { type: 'reset' };
 
-export const initialAnalysisState: AnalysisState = {
-  phase: 'idle',
-  step: 0,
-  file: null,
-  extraction: null,
-  result: null,
-  error: null,
-  failedStep: null,
-  startedAt: null,
-};
+export const IDLE: AnalysisState = { phase: 'idle' };
 
 export function analysisReducer(state: AnalysisState, action: AnalysisAction): AnalysisState {
+  if (action.type === 'reset') return IDLE;
+  if (action.type === 'start') {
+    return { phase: 'running', startedAt: action.startedAt, ...action.run };
+  }
+  if (state.phase !== 'running') return state;
   switch (action.type) {
-    case 'start':
-      return {
-        ...initialAnalysisState,
-        phase: 'running',
-        step: 0,
-        file: action.file,
-        startedAt: action.startedAt,
-      };
-    case 'retry':
-      if (!state.file) return state;
-      return {
-        ...state,
-        phase: 'running',
-        step: action.fromStep,
-        result: null,
-        error: null,
-        failedStep: null,
-        startedAt: action.startedAt,
-        extraction: action.fromStep >= 2 ? state.extraction : null,
-      };
-    case 'set_step':
-      if (state.phase !== 'running') return state;
-      return { ...state, step: action.step };
-    case 'extraction_ok':
-      if (state.phase !== 'running') return state;
-      return { ...state, extraction: action.extraction };
+    case 'extracting':
+      return { ...state, step: 1, extraction: null };
+    case 'analyzing':
+      return { ...state, step: 2, extraction: action.extraction };
     case 'done':
-      if (state.phase !== 'running') return state;
-      return {
-        ...state,
-        phase: 'done',
-        step: 3,
-        result: action.result,
-        error: null,
-        failedStep: null,
-      };
-    case 'fail':
-      if (state.phase !== 'running') return state;
-      return {
-        ...state,
-        phase: 'error',
-        error: action.error,
-        failedStep: action.failedStep,
-        step: action.failedStep,
-      };
-    case 'abort':
-    case 'reset':
-      return initialAnalysisState;
-    default: {
-      const _exhaustive: never = action;
-      return _exhaustive;
+      return { phase: 'done', file: state.file, result: action.result };
+    case 'fail': {
+      const { file, step, extraction } = state;
+      return { phase: 'error', file, step, extraction, error: action.error };
     }
   }
 }
 
-export function statusMessage(state: AnalysisState): string {
-  if (state.phase === 'idle') return 'Gotowy do analizy. Wybierz plik PDF.';
-  if (state.phase === 'error' && state.error) return state.error.message;
-  if (state.phase === 'done' && state.result) {
-    const title = state.result.document.title ?? state.result.document.fileName;
-    return `Analiza zakończona: ${title}`;
+// Walidacja → odczyt tekstu → analiza. Zwraca wynik albo null po błędzie lub anulowaniu.
+export async function runPipeline(
+  run: Run,
+  signal: AbortSignal,
+  dispatch: (action: AnalysisAction) => void,
+): Promise<AnalysisResult | null> {
+  // Przerwany przebieg (anulowanie albo nowy plik) nie może już zmienić stanu.
+  const update = (action: AnalysisAction) => {
+    if (!signal.aborted) dispatch(action);
+  };
+  const extract = () => {
+    update({ type: 'extracting' });
+    return extractText(run.file, signal);
+  };
+  const analyze = (extraction: ExtractResponse) => {
+    update({ type: 'analyzing', extraction });
+    return analyzeExtraction(extraction.extractionId, signal);
+  };
+
+  update({ type: 'start', run, startedAt: Date.now() });
+  try {
+    if (run.step === 0) await validatePdf(run.file);
+    const extraction = run.extraction ?? (await extract());
+    const result = await analyze(extraction).catch(async (error: unknown) => {
+      if (!(error instanceof AppError && error.code === 'EXTRACTION_NOT_FOUND')) throw error;
+      // Tekst wygasł w pamięci serwera, więc plik idzie jeszcze raz. Tylko jedna taka próba.
+      return analyze(await extract());
+    });
+    update({ type: 'done', result });
+    return signal.aborted ? null : result;
+  } catch (error) {
+    update({ type: 'fail', error: error instanceof AppError ? error : new AppError('INTERNAL') });
+    return null;
   }
-  return `Trwa: ${PIPELINE_STEPS[state.step]}`;
+}
+
+export function statusMessage(state: AnalysisState): string {
+  switch (state.phase) {
+    case 'idle':
+      return 'Gotowy do analizy. Wybierz plik PDF.';
+    case 'running':
+      return `Trwa: ${PIPELINE_STEPS[state.step]}`;
+    case 'error':
+      return state.error.message;
+    case 'done':
+      return `Analiza zakończona: ${state.result.document.title ?? state.result.document.fileName}`;
+  }
 }

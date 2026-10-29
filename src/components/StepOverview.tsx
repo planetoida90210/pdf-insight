@@ -1,8 +1,8 @@
-import { PIPELINE_STEPS, type PipelineStepIndex } from '../lib/analysisMachine';
+import { PIPELINE_STEPS, type RunStep } from '../lib/analysisMachine';
 
 type StepOverviewProps = {
-  activeStep?: PipelineStepIndex | null;
-  completedThrough?: PipelineStepIndex | null;
+  activeStep?: RunStep | null;
+  completedThrough?: RunStep | null;
   compact?: boolean;
 };
 
@@ -14,7 +14,7 @@ export function StepOverview({
   return (
     <ol className={compact ? 'step-grid step-grid--compact' : 'step-grid'}>
       {PIPELINE_STEPS.map((label, index) => {
-        const step = index as PipelineStepIndex;
+        const step = index as RunStep;
         const active = activeStep === step;
         const done = completedThrough !== null && step <= completedThrough && !active;
         return (
