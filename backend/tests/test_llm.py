@@ -9,7 +9,7 @@ import pytest
 from app.analysis import analyze_extraction
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
-from app.llm import OpenRouter, create_llm
+from app.llm import MAX_TOKENS, OpenRouter, create_llm
 from app.ratelimit import DailyCounter
 from tests.fakes import completion, extraction
 
@@ -62,7 +62,7 @@ def test_analysis_request_asks_for_strict_json_without_sampling_parameters(
             {"role": "system", "content": "System."},
             {"role": "user", "content": [{"type": "text", "text": "Tajny tekst umowy."}]},
         ],
-        "max_tokens": 8192,
+        "max_tokens": MAX_TOKENS,
         "reasoning": {"effort": "low", "exclude": True},
         "provider": {"require_parameters": True},
         "response_format": {

@@ -28,14 +28,20 @@ class Settings(BaseSettings):
     ocr_min_confidence: float = 60
     vision_fallback: bool = True
     max_text_chars: int = 2_000_000
-    chunk_chars: int = 40_000
+    # 150,000 characters are about 50,000 tokens: far inside Haiku 5.5's 1M context and under the
+    # 100,000-token prompt size past which its input costs 5x more. A dense 200-page document
+    # (~820,000 characters) is 6 chunks, so with CHUNK_CONCURRENCY 8 its analysis takes one round
+    # of parallel chunk calls plus the call that writes the summary.
+    chunk_chars: int = 150_000
 
     rate_limit_per_minute: int = 6
     daily_llm_call_limit: int = 1000
     extraction_ttl_seconds: int = 900
-    extract_timeout_seconds: float = 90
+    # DigitalOcean's edge ends every request at 100 s: both steps answer before it, with TIMEOUT
+    # at the latest.
+    extract_timeout_seconds: float = 85
     extract_memory_mb: int = 320
-    analyze_timeout_seconds: float = 120
+    analyze_timeout_seconds: float = 85
 
     @property
     def origins(self) -> list[str]:

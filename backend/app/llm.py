@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 
 PROVIDER = "openrouter"
 BASE_URL = "https://openrouter.ai/api/v1"
-# Reasoning tokens count towards this ceiling as well.
-MAX_TOKENS = 8192
+# Room for the longest answer: the amounts and dates of a 150,000-character chunk, or a dense
+# page transcribed. Reasoning tokens count towards this ceiling as well.
+MAX_TOKENS = 16_000
 TIMEOUT_STATUSES = {408, 504}
 
 
