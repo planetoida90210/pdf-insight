@@ -27,9 +27,15 @@ def long_extraction(*bodies: str) -> Extraction:
     )
 
 
-def test_split_packs_whole_pages() -> None:
+def test_split_packs_whole_pages_and_cuts_long_ones() -> None:
     pages = ["a" * 40, "b" * 40, "c" * 40, "d" * 200]
-    assert split_into_chunks(pages, 90) == ["a" * 40 + "\n\n" + "b" * 40, "c" * 40, "d" * 200]
+    assert split_into_chunks(pages, 90) == [
+        "a" * 40 + "\n\n" + "b" * 40,
+        "c" * 40,
+        "d" * 90,
+        "d" * 90,
+        "d" * 20,
+    ]
     assert split_into_chunks(pages[:2], 1000) == ["a" * 40 + "\n\n" + "b" * 40]
 
 

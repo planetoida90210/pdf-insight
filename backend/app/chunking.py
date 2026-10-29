@@ -9,13 +9,15 @@ from app.validation import dedupe
 
 
 def split_into_chunks(pages: list[str], max_chars: int) -> list[str]:
-    """Packs whole pages into chunks of at most `max_chars`; a longer page is a chunk of its own."""
+    """Packs whole pages into chunks of at most `max_chars`; a longer page is cut into pieces."""
     chunks: list[str] = []
     for page in pages:
-        if chunks and len(chunks[-1]) + len(PAGE_SEPARATOR) + len(page) <= max_chars:
-            chunks[-1] += PAGE_SEPARATOR + page
-        else:
-            chunks.append(page)
+        for start in range(0, len(page), max_chars):
+            piece = page[start : start + max_chars]
+            if chunks and len(chunks[-1]) + len(PAGE_SEPARATOR) + len(piece) <= max_chars:
+                chunks[-1] += PAGE_SEPARATOR + piece
+            else:
+                chunks.append(piece)
     return chunks
 
 

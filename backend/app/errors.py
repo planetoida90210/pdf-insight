@@ -31,6 +31,7 @@ class WarningCode(StrEnum):
     VISION_USED = "VISION_USED"
     OCR_LOW_CONFIDENCE = "OCR_LOW_CONFIDENCE"
     PAGES_SKIPPED = "PAGES_SKIPPED"
+    TEXT_LIMIT = "TEXT_LIMIT"
     INJECTION_SUSPECTED = "INJECTION_SUSPECTED"
     UNGROUNDED_REMOVED = "UNGROUNDED_REMOVED"
     CHUNKED = "CHUNKED"
@@ -77,6 +78,9 @@ WARNINGS: dict[WarningCode, str] = {
     WarningCode.OCR_LOW_CONFIDENCE: "Strona {page}: niska pewność OCR ({confidence:.0f}%).",
     WarningCode.PAGES_SKIPPED: (
         "Strona {page} wymaga OCR, ale osiągnięto limit stron OCR ({limit}). Pominięto ją."
+    ),
+    WarningCode.TEXT_LIMIT: (
+        "Pominięto tekst od strony {page}: dokument przekracza limit {limit} znaków."
     ),
     WarningCode.INJECTION_SUSPECTED: (
         'Dokument zawiera fragment wyglądający na polecenie dla AI: "{snippet}". '
