@@ -6,7 +6,6 @@ import pytest
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
 from app.extraction import Extraction, extract_pdf
-from app.grounding import dates_in
 from app.ocr import MAX_RENDER_PIXELS, OCR_SCALE, render_page
 from tests.pdfs import hidden_text_pdf, huge_page_pdf, image_pages_pdf, text_pdf
 
@@ -31,7 +30,7 @@ def test_keeps_words_and_lines_apart() -> None:
         )
     )
     assert result.pages[0].startswith("[Strona 1]\nStart etapu: 01.04.2026\n")
-    assert {"2026-04-01", "2026-04-30"} <= dates_in(result.text)
+    assert "Koniec etapu: 30.04.2026" in result.pages[0]
     assert result.pages[1] == "[Strona 2]\nDruga strona umowy z dodatkowym tekstem."
     assert [info.method for info in result.page_info] == ["text", "text"]
     assert result.warnings == []
