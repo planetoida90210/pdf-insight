@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AppError, isErrorCode, type ErrorCode } from '../lib/errors';
+import { AppError, isErrorCode, retryAfterMessage, type ErrorCode } from '../lib/errors';
 import {
   analysisResultSchema,
   extractResponseSchema,
@@ -49,10 +49,7 @@ export function errorFromResponse(
   const code = errorCode(status, body);
   const seconds = Number(retryAfter);
   if (code === 'RATE_LIMITED' && Number.isInteger(seconds) && seconds > 0) {
-    return new AppError(
-      code,
-      `Zbyt wiele zapytań w krótkim czasie. Spróbuj ponownie za ${seconds} s.`,
-    );
+    return new AppError(code, retryAfterMessage(seconds));
   }
   return new AppError(code);
 }

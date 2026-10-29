@@ -1,9 +1,10 @@
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist';
 // Import `?url` daje adres workera z hashem i prefiksem `base`, więc działa także pod /pdf-insight/ na GitHub Pages.
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { MAX_FILE_MB } from './config';
 import { AppError } from './errors';
 
-export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 
 const PDF_SIGNATURE = '%PDF-';
 

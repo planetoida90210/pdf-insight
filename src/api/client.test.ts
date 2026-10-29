@@ -10,19 +10,19 @@ describe('errorFromResponse', () => {
   it('mapuje kod z koperty błędu na polski komunikat', () => {
     const error = errorFromResponse(415, envelope('UNSUPPORTED_TYPE'), null);
     expect(error.code).toBe('UNSUPPORTED_TYPE');
-    expect(error.message).toBe('To nie jest plik PDF. Wybierz plik w formacie PDF.');
+    expect(error.message).toBe('To nie jest plik PDF.');
     expect(error.retryable).toBe(false);
   });
 
   it('mapuje INVALID_REQUEST i NOT_FOUND na polskie komunikaty', () => {
     const invalid = errorFromResponse(400, envelope('INVALID_REQUEST'), null);
     expect(invalid.code).toBe('INVALID_REQUEST');
-    expect(invalid.message).toBe('Żądanie jest niepoprawne. Sprawdź dane i spróbuj ponownie.');
+    expect(invalid.message).toBe('Serwer odrzucił żądanie.');
     expect(invalid.retryable).toBe(true);
 
     const missing = errorFromResponse(404, envelope('NOT_FOUND'), null);
     expect(missing.code).toBe('NOT_FOUND');
-    expect(missing.message).toBe('Nie znaleziono żądanego zasobu.');
+    expect(missing.message).toBe('Serwer nie zna tego adresu.');
     expect(missing.retryable).toBe(true);
   });
 
@@ -34,10 +34,10 @@ describe('errorFromResponse', () => {
 
   it('podaje czas oczekiwania z nagłówka Retry-After', () => {
     expect(errorFromResponse(429, envelope('RATE_LIMITED'), '30').message).toBe(
-      'Zbyt wiele zapytań w krótkim czasie. Spróbuj ponownie za 30 s.',
+      'Za dużo zapytań, spróbuj za 30 s.',
     );
     expect(errorFromResponse(429, envelope('RATE_LIMITED'), 'jutro').message).toBe(
-      'Zbyt wiele zapytań w krótkim czasie. Odczekaj chwilę i spróbuj ponownie.',
+      'Za dużo zapytań, odczekaj chwilę.',
     );
   });
 
