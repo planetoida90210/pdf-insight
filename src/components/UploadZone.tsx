@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useId, useRef, useState, type DragEvent } from 'react';
 
 type UploadZoneProps = {
   disabled?: boolean;
@@ -27,13 +27,6 @@ export function UploadZone({ disabled = false, onFile }: UploadZoneProps) {
     if (!disabled) setDragging(true);
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      inputRef.current?.click();
-    }
-  };
-
   return (
     <div
       className="upload"
@@ -54,7 +47,6 @@ export function UploadZone({ disabled = false, onFile }: UploadZoneProps) {
           disabled={disabled}
           aria-controls={inputId}
           onClick={() => inputRef.current?.click()}
-          onKeyDown={onKeyDown}
         >
           Wybierz plik PDF
         </button>

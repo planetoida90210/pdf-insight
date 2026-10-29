@@ -7,6 +7,7 @@ import {
   removeFromHistory,
   type HistoryEntry,
 } from '../lib/history';
+import type { AnalysisPhase } from '../lib/analysisMachine';
 import type { AnalysisResult } from '../lib/schema';
 import { EmptyState } from './EmptyState';
 import { ErrorPanel } from './ErrorPanel';
@@ -16,6 +17,34 @@ import { HistoryPanel } from './HistoryPanel';
 import { ProgressPanel } from './ProgressPanel';
 import { ResultsView } from './ResultsView';
 
+type MainView = 'empty' | 'progress' | 'error' | 'done' | 'history';
+
+function mainViewOf(
+  historyView: { result: AnalysisResult } | null,
+  phase: AnalysisPhase,
+): MainView {
+  if (historyView) return 'history';
+  if (phase === 'running') return 'progress';
+  if (phase === 'error') return 'error';
+  if (phase === 'done') return 'done';
+  return 'empty';
+}
+
+const VIEW_HEADING: Record<MainView, string> = {
+  empty: 'empty-heading',
+  progress: 'progress-heading',
+  error: 'error-heading',
+  done: 'result-heading',
+  history: 'result-heading',
+};
+
+function focusViewHeading(view: MainView): void {
+  const el = document.getElementById(VIEW_HEADING[view]);
+  if (!(el instanceof HTMLElement)) return;
+  if (!el.hasAttribute('tabindex')) el.tabIndex = -1;
+  el.focus({ preventScroll: true });
+}
+
 export function App() {
   const { state, elapsedMs, providerLabel, statusText, start, retry, cancel, reset } =
     useAnalysis();
@@ -24,6 +53,7 @@ export function App() {
     result: AnalysisResult;
   } | null>(null);
   const savedResultRef = useRef<AnalysisResult | null>(null);
+  const viewRef = useRef<MainView | null>(null);
 
   useEffect(() => {
     if (state.phase !== 'done' || !state.result) return;
@@ -32,6 +62,20 @@ export function App() {
     setHistory(addToHistory(state.result));
     setHistoryView(null);
   }, [state.phase, state.result]);
+
+  const view = mainViewOf(historyView, state.phase);
+
+  // Po zmianie widoku przenieś fokus na nagłówek panelu (klawiatura / czytniki).
+  useEffect(() => {
+    if (viewRef.current === null) {
+      viewRef.current = view;
+      return;
+    }
+    if (viewRef.current === view) return;
+    viewRef.current = view;
+    const id = window.requestAnimationFrame(() => focusViewHeading(view));
+    return () => window.cancelAnimationFrame(id);
+  }, [view]);
 
   const onReset = () => {
     savedResultRef.current = null;

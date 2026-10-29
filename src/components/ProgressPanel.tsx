@@ -32,9 +32,7 @@ export function ProgressPanel({
         completedThrough={step > 0 ? ((step - 1) as PipelineStepIndex) : null}
       />
       <div className="progress__meta">
-        <p className="progress__status" aria-live="polite" aria-atomic="true">
-          {statusText}
-        </p>
+        <p className="progress__status">{statusText}</p>
         <p className="progress__time">Czas: {formatSeconds(elapsedMs)}</p>
       </div>
       <div className="btn-row">

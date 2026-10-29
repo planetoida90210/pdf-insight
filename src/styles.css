@@ -200,6 +200,12 @@ a {
   max-width: 18ch;
 }
 
+/* Programmatic focus after view changes does not match :focus-visible in all browsers. */
+.section-title:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
 .lede {
   margin: 0 0 var(--space-5);
   color: var(--text-muted);
