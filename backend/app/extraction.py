@@ -14,7 +14,7 @@ from app.config import Settings
 from app.errors import ApiError, ErrorCode, WarningCode, warning
 from app.injection import find_injection
 from app.llm import OpenRouter
-from app.ocr import ocr_page, render_page
+from app.ocr import OcrResult, ocr_page, render_page
 from app.schema import AnalysisWarning, PageInfo
 from app.upload import open_pdf
 
@@ -46,18 +46,8 @@ def extract_pdf(
     vision: OpenRouter | None,
     deadline: float,
 ) -> Extraction:
-    result = Extraction(file_name=file_name, pages=[], page_info=[], warnings=[])
-    with open_pdf(data, settings.max_pages) as pdf, pdfplumber.open(BytesIO(data)) as plumber:
-        for number, page in enumerate(plumber.pages, start=1):
-            if time.monotonic() > deadline:
-                raise ApiError(ErrorCode.TIMEOUT)
-            ocr_pages = sum(info.method != "text" for info in result.page_info)
-            ocr_allowed = ocr_pages < settings.max_ocr_pages
-            info, text, warnings = _read_page(pdf, page, number, settings, vision, ocr_allowed)
-            result.page_info.append(info)
-            result.warnings.extend(warnings)
-            if text:
-                result.pages.append(f"[Strona {number}]\n{text}")
+    """The visible text of every page and its warnings; ApiError when the file cannot be read."""
+    result = _read_pages(data, file_name, settings, vision, deadline)
     if not result.pages:
         raise ApiError(ErrorCode.NO_TEXT)
     if injection := find_injection(result.text):
@@ -71,6 +61,24 @@ def extract_pdf(
     return result
 
 
+def _read_pages(
+    data: bytes, file_name: str, settings: Settings, vision: OpenRouter | None, deadline: float
+) -> Extraction:
+    result = Extraction(file_name=file_name, pages=[], page_info=[], warnings=[])
+    with open_pdf(data, settings.max_pages) as pdf, pdfplumber.open(BytesIO(data)) as plumber:
+        for number, page in enumerate(plumber.pages, start=1):
+            if time.monotonic() > deadline:
+                raise ApiError(ErrorCode.TIMEOUT)
+            ocr_pages = sum(info.method != "text" for info in result.page_info)
+            ocr_allowed = ocr_pages < settings.max_ocr_pages
+            info, text, warnings = _read_page(pdf, page, number, settings, vision, ocr_allowed)
+            result.page_info.append(info)
+            result.warnings.extend(warnings)
+            if text:
+                result.pages.append(f"[Strona {number}]\n{text}")
+    return result
+
+
 def _read_page(
     pdf: pdfium.PdfDocument,
     page: Any,
@@ -79,6 +87,7 @@ def _read_page(
     vision: OpenRouter | None,
     ocr_allowed: bool,
 ) -> tuple[PageInfo, str, list[AnalysisWarning]]:
+    """The text layer when it has enough visible text, else the OCR text of the rendered page."""
     visible, hidden = _visible_and_hidden_text(page, render_page(pdf, number - 1, VISIBILITY_SCALE))
     warnings = [warning(WarningCode.HIDDEN_TEXT, number, snippet=hidden)] if hidden else []
     text_info = PageInfo(page=number, method="text", chars=len(visible), confidence=None)
@@ -95,12 +104,17 @@ def _read_page(
         min_confidence=settings.ocr_min_confidence,
         vision=vision,
     )
-    used = WarningCode.VISION_USED if ocr.method == "vision" else WarningCode.OCR_USED
-    warnings.append(warning(used, number))
-    if ocr.confidence is not None and ocr.confidence < settings.ocr_min_confidence:
-        warnings.append(warning(WarningCode.OCR_LOW_CONFIDENCE, number, confidence=ocr.confidence))
+    warnings += _ocr_warnings(ocr, number, settings.ocr_min_confidence)
     info = PageInfo(page=number, method=ocr.method, chars=len(ocr.text), confidence=ocr.confidence)
     return info, ocr.text, warnings
+
+
+def _ocr_warnings(ocr: OcrResult, number: int, min_confidence: float) -> list[AnalysisWarning]:
+    used = WarningCode.VISION_USED if ocr.method == "vision" else WarningCode.OCR_USED
+    warnings = [warning(used, number)]
+    if ocr.confidence is not None and ocr.confidence < min_confidence:
+        warnings.append(warning(WarningCode.OCR_LOW_CONFIDENCE, number, confidence=ocr.confidence))
+    return warnings
 
 
 def _visible_and_hidden_text(page: Any, rendered: Image.Image) -> tuple[str, str]:

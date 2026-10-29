@@ -19,7 +19,14 @@ from app.prompts import (
     parts_digest,
     retry_note,
 )
-from app.schema import LLM_JSON_SCHEMA, AnalysisResult, DocumentInfo, LlmAnalysis, Meta
+from app.schema import (
+    LLM_JSON_SCHEMA,
+    AnalysisResult,
+    AnalysisWarning,
+    DocumentInfo,
+    LlmAnalysis,
+    Meta,
+)
 from app.validation import parse_analysis
 
 logger = logging.getLogger("pdf_insight")
@@ -35,16 +42,7 @@ def analyze_extraction(
     started = time.perf_counter()
     chunks = split_into_chunks(extraction.pages, settings.chunk_chars)
     analysis, removed = ground_analysis(_analyze_chunks(llm, chunks), extraction.text)
-
-    warnings = list(extraction.warnings)
-    if removed:
-        warnings.append(warning(WarningCode.UNGROUNDED_REMOVED, count=removed))
-    if len(chunks) > 1:
-        warnings.append(warning(WarningCode.CHUNKED, chunks=len(chunks)))
-    warnings += [
-        warning(WarningCode.INJECTION_SUSPECTED, snippet=quote)
-        for quote in analysis.suspicious_instructions
-    ]
+    warnings = _warnings(extraction, analysis, removed, len(chunks))
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     logger.info(
         "analyzed chunks=%s ms=%s warnings=%s", len(chunks), elapsed_ms, [w.code for w in warnings]
@@ -62,18 +60,7 @@ def analyze_extraction(
         dates=analysis.dates,
         keywords=analysis.keywords,
         warnings=warnings,
-        meta=Meta(
-            schema_version="1.0",
-            analyzed_at=datetime.now(UTC),
-            provider=PROVIDER,
-            model=settings.llm_model,
-            ocr_pages=[info.page for info in extraction.page_info if info.method != "text"],
-            hidden_text_pages=[
-                w.page for w in extraction.warnings if w.code == WarningCode.HIDDEN_TEXT and w.page
-            ],
-            chunks=len(chunks),
-            processing_ms=elapsed_ms,
-        ),
+        meta=_meta(extraction, settings.llm_model, len(chunks), elapsed_ms),
     )
 
 
@@ -101,3 +88,34 @@ def _ask(llm: OpenRouter, task: str, document: str) -> LlmAnalysis:
             return analysis
     logger.warning("invalid AI response after retry: %s", errors)
     raise ApiError(ErrorCode.AI_INVALID_RESPONSE)
+
+
+def _warnings(
+    extraction: Extraction, analysis: LlmAnalysis, removed: int, chunks: int
+) -> list[AnalysisWarning]:
+    """Extraction warnings first, then what analysis found."""
+    warnings = list(extraction.warnings)
+    if removed:
+        warnings.append(warning(WarningCode.UNGROUNDED_REMOVED, count=removed))
+    if chunks > 1:
+        warnings.append(warning(WarningCode.CHUNKED, chunks=chunks))
+    warnings += [
+        warning(WarningCode.INJECTION_SUSPECTED, snippet=quote)
+        for quote in analysis.suspicious_instructions
+    ]
+    return warnings
+
+
+def _meta(extraction: Extraction, model: str, chunks: int, elapsed_ms: int) -> Meta:
+    return Meta(
+        schema_version="1.0",
+        analyzed_at=datetime.now(UTC),
+        provider=PROVIDER,
+        model=model,
+        ocr_pages=[info.page for info in extraction.page_info if info.method != "text"],
+        hidden_text_pages=[
+            w.page for w in extraction.warnings if w.code == WarningCode.HIDDEN_TEXT and w.page
+        ],
+        chunks=chunks,
+        processing_ms=elapsed_ms,
+    )
