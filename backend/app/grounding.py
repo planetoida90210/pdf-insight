@@ -1,57 +1,29 @@
-"""Keeps only the amounts and dates that appear in the source text (Polish and English formats)."""
+"""Keeps only the amounts and dates whose digits appear in the source text, in any language."""
 
 import re
-from contextlib import suppress
-from datetime import date
 
 from app.schema import LlmAnalysis
 
-# "184 500,00", "1.234,56", "1,234.56", "8600": thousands split by a space, nbsp, dot or comma.
-NUMBER_RE = re.compile(r"(?<!\d)(\d{1,3}(?:[ \u00a0\u202f.,]\d{3})+|\d+)(?:[.,](\d+))?(?!\d)")
+# "184 500,00", "1.234,56", "1,234.56", "1'234.50", "8600": thousands split by a space, nbsp,
+# dot, comma or apostrophe.
+NUMBER_RE = re.compile(
+    r"(?<!\d)(\d{1,3}(?:[ \u00a0\u202f.,'\u2019]\d{3})+|\d+)(?:[.,](\d+))?(?!\d)"
+)
 AMOUNT_TOLERANCE = 0.01
-
-MONTHS = {
-    month: number
-    for number, names in enumerate(
-        (
-            ("stycznia", "january"),
-            ("lutego", "february"),
-            ("marca", "march"),
-            ("kwietnia", "april"),
-            ("maja", "may"),
-            ("czerwca", "june"),
-            ("lipca", "july"),
-            ("sierpnia", "august"),
-            ("września", "wrzesnia", "september"),
-            ("października", "pazdziernika", "october"),
-            ("listopada", "november"),
-            ("grudnia", "december"),
-        ),
-        start=1,
-    )
-    for month in names
-}
-MONTH_NAME = "|".join(MONTHS)
-
-# (pattern, group numbers of year, month, day)
-DATE_PATTERNS = [
-    (re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b"), (1, 2, 3)),
-    (re.compile(r"\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b"), (3, 2, 1)),
-    (re.compile(rf"\b(\d{{1,2}})\s+({MONTH_NAME})\s+(\d{{4}})\b", re.IGNORECASE), (3, 2, 1)),
-    (re.compile(rf"\b({MONTH_NAME})\s+(\d{{1,2}}),?\s+(\d{{4}})\b", re.IGNORECASE), (3, 1, 2)),
-]
 
 
 def ground_analysis(analysis: LlmAnalysis, source: str) -> tuple[LlmAnalysis, int]:
     """Returns the analysis without ungrounded amounts and dates, and how many were removed."""
-    numbers, dates = numbers_in(source), dates_in(source)
+    numbers, integers = numbers_in(source), integers_in(source)
     amounts = [
         amount
         for amount in analysis.amounts
         if any(abs(amount.value - number) < AMOUNT_TOLERANCE for number in numbers)
     ]
-    entries = [entry for entry in analysis.dates if entry.date in dates]
-    doc_date = analysis.document.date if analysis.document.date in dates else None
+    entries = [entry for entry in analysis.dates if date_in(entry.date, integers)]
+    doc_date = analysis.document.date
+    if doc_date is not None and not date_in(doc_date, integers):
+        doc_date = None
     removed = len(analysis.amounts) - len(amounts) + len(analysis.dates) - len(entries)
     if doc_date != analysis.document.date:
         removed += 1
@@ -70,17 +42,15 @@ def numbers_in(text: str) -> set[float]:
     return _numbers(text) | _numbers(text.replace("\n", " "))
 
 
-def dates_in(text: str) -> set[str]:
-    found = set()
-    for pattern, (year, month, day) in DATE_PATTERNS:
-        for match in pattern.finditer(text):
-            month_text = match[month].lower()
-            # KeyError: IGNORECASE lets long s (U+017F) and dotless i (U+0131) match "s" and "i",
-            # but .lower() keeps them, so the name is not in MONTHS.
-            with suppress(KeyError, ValueError):
-                month_number = int(month_text) if month_text.isdigit() else MONTHS[month_text]
-                found.add(date(int(match[year]), month_number, int(match[day])).isoformat())
-    return found
+def integers_in(text: str) -> set[int]:
+    return {int(digits) for digits in re.findall(r"\d+", text)}
+
+
+def date_in(iso_date: str, integers: set[int]) -> bool:
+    """Month names differ in every language, so only what every date format writes in digits is
+    checked: the year (all four digits or the last two) and the day."""
+    year, _, day = (int(part) for part in iso_date.split("-"))
+    return (year in integers or year % 100 in integers) and day in integers
 
 
 def _numbers(text: str) -> set[float]:

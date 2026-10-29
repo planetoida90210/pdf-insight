@@ -1,13 +1,15 @@
 import json
 
-from app.grounding import dates_in, ground_analysis, numbers_in
+import pytest
+
+from app.grounding import date_in, ground_analysis, integers_in, numbers_in
 from app.schema import LlmAnalysis
 from tests.fakes import llm_answer
 
 
 def test_reads_polish_and_english_number_formats() -> None:
-    text = "184 500,00 zł; 12\u00a0300 PLN; 2 150 EUR; 1.234,56; 1,234.56; 890 USD; 99,5%"
-    assert {184500.0, 12300.0, 2150.0, 1234.56, 890.0, 99.5} <= numbers_in(text)
+    text = "184 500,00 zł; 12\u00a0300 PLN; 2 150 EUR; 1.234,56; 1,234.56; 1'234.50; 99,5%"
+    assert {184500.0, 12300.0, 2150.0, 1234.56, 1234.5, 99.5} <= numbers_in(text)
 
 
 def test_line_break_can_split_one_number_or_separate_two() -> None:
@@ -15,23 +17,29 @@ def test_line_break_can_split_one_number_or_separate_two() -> None:
     assert {13100.0, 120.0, 135.0} <= numbers_in(text)
 
 
-def test_reads_polish_english_and_iso_dates() -> None:
-    text = (
-        "zawarta 12.03.2026 r., start 1 kwietnia 2026 r., wtorek, 24 lutego 2026 r., "
-        "ISO 2027-04-01, March 15, 2026, 31 December 2028, bad 31.02.2026"
-    )
-    assert dates_in(text) == {
+@pytest.mark.parametrize(
+    "text",
+    [
+        "12.03.2026",
         "2026-03-12",
-        "2026-04-01",
-        "2026-02-24",
-        "2027-04-01",
-        "2026-03-15",
-        "2028-12-31",
-    }
+        "03/12/2026",
+        "12/03/26",
+        "12 marca 2026 r.",
+        "March 12, 2026",
+        "Mar 12, 2026",
+        "12. März 2026",
+        "12 mars 2026",
+        "12 de marzo de 2026",
+    ],
+)
+def test_finds_a_date_written_in_any_format(text: str) -> None:
+    assert date_in("2026-03-12", integers_in(text))
 
 
-def test_skips_month_names_that_match_only_through_case_folding() -> None:
-    assert dates_in("1 \u017ftycznia 2024, 2 lutego 2024") == {"2024-02-02"}
+def test_rejects_a_date_whose_year_or_day_is_not_in_the_text() -> None:
+    integers = integers_in("Umowa z 12.03.2026")
+    assert not date_in("2027-03-12", integers)
+    assert not date_in("2026-03-15", integers)
 
 
 def test_drops_ungrounded_values_and_counts_them() -> None:

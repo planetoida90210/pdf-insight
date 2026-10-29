@@ -130,13 +130,19 @@ class LlmDocument(ApiModel):
 
 class LlmAnalysis(ApiModel):
     document: LlmDocument
-    summary: NonEmptyStr
-    key_points: list[NonEmptyStr]
+    # One sentence per item, so the 3-5 rule is a list length: counting sentences in free text
+    # trips over abbreviations ("sp. z o.o.", "Inc.") in every language.
+    summary_sentences: Annotated[list[NonEmptyStr], Field(min_length=3, max_length=5)]
+    key_points: Annotated[list[NonEmptyStr], Field(min_length=3, max_length=7)]
     entities: Entities
     amounts: list[Amount]
     dates: list[DateEntry]
     keywords: list[NonEmptyStr]
     suspicious_instructions: list[NonEmptyStr]
+
+    @property
+    def summary(self) -> str:
+        return " ".join(self.summary_sentences)
 
 
 def analysis_json_schema() -> dict[str, object]:
@@ -152,10 +158,10 @@ def _without_keywords(node: Any, keywords: set[str]) -> Any:
     return node
 
 
-# Strict structured output rejects string-length and pattern constraints; they are still
-# enforced locally when LlmAnalysis validates the answer.
+# Strict structured output rejects string-length, pattern and item-count constraints; they are
+# still enforced locally when LlmAnalysis validates the answer.
 LLM_JSON_SCHEMA: dict[str, Any] = _without_keywords(
-    LlmAnalysis.model_json_schema(), {"minLength", "pattern"}
+    LlmAnalysis.model_json_schema(), {"minLength", "pattern", "minItems", "maxItems"}
 )
 
 

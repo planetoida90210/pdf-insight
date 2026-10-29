@@ -1,33 +1,7 @@
 import json
 
-import pytest
-
-from app.validation import count_sentences, parse_analysis
+from app.validation import parse_analysis
 from tests.fakes import llm_answer
-
-
-@pytest.mark.parametrize(
-    ("text", "sentences"),
-    [
-        ("Pierwsze zdanie. Drugie zdanie! Trzecie?", 3),
-        (
-            "Umowa nr 14/2026 obowiązuje od 1 kwietnia 2026 r. do 31 marca 2028 r. "
-            "Strony to Nordwave Logistics sp. z o.o. oraz Kwadrat Software S.A. "
-            "Wynagrodzenie wynosi ok. 184,5 tys. zł, m.in. za wdrożenie.",
-            3,
-        ),
-        ("Umowę podpisała A. Kowalczyk w dniu 12.03.2026 r. Obowiązuje dwa lata.", 2),
-        ("Termin upływa 31 marca 2028 r.", 1),
-        (
-            "Umowę zawarły Nordwave Logistics sp. z o.o. (Zamawiający) oraz Kwadrat Software "
-            "S.A. (Wykonawca). Biuro mieści się przy ul. Długiej 5 w Gdańsku.",
-            2,
-        ),
-        ("", 0),
-    ],
-)
-def test_count_sentences_skips_polish_abbreviations(text: str, sentences: int) -> None:
-    assert count_sentences(text) == sentences
 
 
 def test_normalizes_before_validation() -> None:
@@ -58,11 +32,13 @@ def test_errors_name_the_field_for_the_retry_prompt() -> None:
     assert errors == ["amounts.0.currency: String should match pattern '^[A-Z]{3}$'"]
 
 
-def test_rule_errors_for_summary_and_key_points() -> None:
-    _, errors = parse_analysis(llm_answer(summary="Jedno zdanie.", keyPoints=["a", "b"]))
+def test_counts_summary_sentences_and_key_points() -> None:
+    sentences = [f"Zdanie {n} o firmie Acme sp. z o.o. (Wykonawca)." for n in range(5)]
+    assert parse_analysis(llm_answer(summarySentences=sentences))[1] == []
+    _, errors = parse_analysis(llm_answer(summarySentences=["Jedno zdanie."], keyPoints=["a", "b"]))
     assert errors == [
-        "summary must have 3-5 sentences, has 1",
-        "keyPoints must have 3-7 items, has 2",
+        "summarySentences: List should have at least 3 items after validation, not 1",
+        "keyPoints: List should have at least 3 items after validation, not 2",
     ]
 
 

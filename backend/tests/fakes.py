@@ -14,7 +14,11 @@ def llm_answer(**overrides: Any) -> str:
     """A valid model answer as JSON text; keyword arguments replace top-level fields."""
     answer: dict[str, Any] = {
         "document": {"language": "pl", "type": "umowa", "title": "Umowa", "date": "2026-03-12"},
-        "summary": "Umowa dotyczy wdrożenia CRM. Obowiązuje od kwietnia. Wynagrodzenie jest stałe.",
+        "summarySentences": [
+            "Umowa dotyczy wdrożenia CRM.",
+            "Obowiązuje od kwietnia.",
+            "Wynagrodzenie jest stałe.",
+        ],
         "keyPoints": ["Punkt A", "Punkt B", "Punkt C"],
         "entities": {"organizations": ["Acme"], "people": ["Anna Kowalczyk"]},
         "amounts": [{"value": 100000, "currency": "PLN", "context": "wynagrodzenie"}],

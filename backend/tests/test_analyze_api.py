@@ -76,13 +76,13 @@ def test_document_text_is_wrapped_in_a_random_tag() -> None:
 
 
 def test_retries_once_with_the_validation_errors() -> None:
-    answers = iter([llm_answer(summary="Za krótkie."), llm_answer()])
+    answers = iter([llm_answer(summarySentences=["Za krótkie."]), llm_answer()])
     llm = FakeLlm(lambda _: next(answers))
     client, app = make_client(llm)
     seed(app)
     assert analyze(client).status_code == 200
     assert len(llm.prompts) == 2
-    assert "summary must have 3-5 sentences, has 1" in llm.prompts[1]
+    assert "summarySentences: List should have at least 3 items" in llm.prompts[1]
 
 
 def test_invalid_json_is_retried_too() -> None:

@@ -87,7 +87,7 @@ def test_long_document_is_analysed_per_chunk_then_summarised() -> None:
             return llm_answer(keyPoints=["Całość 1", "Całość 2", "Całość 3"])
         page = "1" if "[Strona 1]" in prompt else "2"
         return llm_answer(
-            summary=f"Streszczenie strony {page}. Drugie zdanie. Trzecie zdanie.",
+            summarySentences=[f"Streszczenie strony {page}.", "Drugie zdanie.", "Trzecie zdanie."],
             entities={"organizations": [f"Firma {page}"], "people": []},
         )
 

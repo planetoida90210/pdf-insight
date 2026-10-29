@@ -1,30 +1,12 @@
 """Turns the model's JSON text into a validated LlmAnalysis, or a list of errors for the retry."""
 
 import json
-import re
 from collections.abc import Iterable
 from typing import Any
 
 from pydantic import ValidationError
 
 from app.schema import LlmAnalysis
-
-SUMMARY_SENTENCES = (3, 5)
-KEY_POINTS = (3, 7)
-
-# A name or a number always follows these abbreviations, so their dots never end a sentence.
-PREFIX_ABBREVIATION_RE = re.compile(
-    r"(?i:\bm\.\s*in\.|\b(?:nr|ul|al|pl|św|dr|mgr|prof|tel|godz|str|poz|pkt|art|ust|tzn|tzw|np|"
-    r"tj|ds|wg|ok|zob|por|lit|dz)\.)"
-)
-# These may close a sentence: their last dot ends one only when a capital letter or the end follows.
-SUFFIX_ABBREVIATION_RE = re.compile(
-    r"(?i:\bsp\.\s*z\s*o\.\s*o\.|\bs\.\s*a\.|\b(?:r|itd|itp|tys|mln|mld)\.)"
-)
-SENTENCE_START_RE = re.compile(r"\s+[A-ZĄĆĘŁŃÓŚŹŻ]|\s*$")
-# A single capital letter with a dot is an initial ("A. Kowalczyk"), never a sentence end.
-INITIAL_RE = re.compile(r"\b([A-ZĄĆĘŁŃÓŚŹŻ])\.")
-SENTENCE_END_RE = re.compile(r"[.!?…]+(?:\s+|$)")
 
 CURRENCIES = {"zł": "PLN", "zl": "PLN", "€": "EUR", "$": "USD", "£": "GBP"}
 
@@ -38,28 +20,9 @@ def parse_analysis(raw: str) -> tuple[LlmAnalysis | None, list[str]]:
     if not isinstance(data, dict):
         return None, ["response must be a JSON object"]
     try:
-        analysis = LlmAnalysis.model_validate(_normalize(data))
+        return LlmAnalysis.model_validate(_normalize(data)), []
     except ValidationError as error:
         return None, [_describe(detail) for detail in error.errors()]
-    return (None, errors) if (errors := rule_errors(analysis)) else (analysis, [])
-
-
-def rule_errors(analysis: LlmAnalysis) -> list[str]:
-    errors = []
-    low, high = SUMMARY_SENTENCES
-    if not low <= (sentences := count_sentences(analysis.summary)) <= high:
-        errors.append(f"summary must have {low}-{high} sentences, has {sentences}")
-    low, high = KEY_POINTS
-    if not low <= (points := len(analysis.key_points)) <= high:
-        errors.append(f"keyPoints must have {low}-{high} items, has {points}")
-    return errors
-
-
-def count_sentences(text: str) -> int:
-    text = PREFIX_ABBREVIATION_RE.sub(lambda match: match.group(0).replace(".", ""), text)
-    text = SUFFIX_ABBREVIATION_RE.sub(_keep_final_dot_at_sentence_end, text)
-    text = INITIAL_RE.sub(r"\1", text)
-    return sum(1 for part in SENTENCE_END_RE.split(text) if part.strip())
 
 
 def dedupe(items: Iterable[str]) -> list[str]:
@@ -71,11 +34,6 @@ def dedupe(items: Iterable[str]) -> list[str]:
             seen.add(item.casefold())
             unique.append(item)
     return unique
-
-
-def _keep_final_dot_at_sentence_end(match: re.Match[str]) -> str:
-    bare = match.group(0).replace(".", "")
-    return bare + "." if SENTENCE_START_RE.match(match.string, match.end()) else bare
 
 
 def _normalize(data: dict[str, Any]) -> dict[str, Any]:
