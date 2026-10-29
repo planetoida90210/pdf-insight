@@ -3,11 +3,13 @@
 import contextlib
 import logging
 import multiprocessing
+import os
 import resource
+import signal
 from collections.abc import Callable
 from multiprocessing.connection import Connection
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from app.config import configure_logging, error_frames
 from app.errors import ApiError, ErrorCode
@@ -40,6 +42,11 @@ def run_isolated[T](task: Callable[..., T], *args: Any, timeout: float, memory_m
         logger.warning("extraction worker exited without a result, exit code %s", child.exitcode)
         raise ApiError(ErrorCode.INVALID_PDF) from error
     finally:
+        # The child leads its own process group, so an OCR subprocess dies with it and cannot
+        # outlive the extraction slot. A group that has already exited answers ESRCH, or EPERM
+        # on macOS while the child is a zombie.
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(cast(int, child.pid), signal.SIGKILL)
         child.kill()
         child.join()
         receiver.close()
@@ -49,6 +56,7 @@ def run_isolated[T](task: Callable[..., T], *args: Any, timeout: float, memory_m
 
 
 def _run(sender: Connection, memory_mb: int, task: Callable[..., Any], args: Any) -> None:
+    os.setpgrp()
     configure_logging()
     _limit_memory(memory_mb * 1024 * 1024)
     try:
