@@ -8,8 +8,6 @@ from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOG_FORMAT = "%(levelname)s %(name)s %(message)s"
-# Warnings from these libraries quote raw values from the PDF (content-stream operands, metadata).
-PDF_PARSER_LOGGERS = ("pdfminer", "pdfplumber")
 
 
 class Settings(BaseSettings):
@@ -67,8 +65,6 @@ def get_settings() -> Settings:
 def configure_logging() -> None:
     """Sizes, timings and codes only: no document text may reach the log."""
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-    for name in PDF_PARSER_LOGGERS:
-        logging.getLogger(name).setLevel(logging.CRITICAL)
 
 
 def error_frames(error: BaseException) -> str:
