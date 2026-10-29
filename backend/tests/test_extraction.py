@@ -3,11 +3,12 @@ from shutil import which
 import pypdfium2 as pdfium
 import pytest
 
+from app import ocr
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
-from app.extraction import Extraction, extract_pdf
+from app.extraction import Extraction, extract_pdf, needs_ocr
 from app.ocr import MAX_RENDER_PIXELS, OCR_SCALE, render_page
-from tests.pdfs import hidden_text_pdf, huge_page_pdf, image_pages_pdf, text_pdf
+from tests.pdfs import hidden_text_pdf, huge_page_pdf, image_pages_pdf, stamped_scan_pdf, text_pdf
 
 HAS_TESSERACT = which("tesseract") is not None
 needs_tesseract = pytest.mark.skipif(not HAS_TESSERACT, reason="tesseract binary not installed")
@@ -52,9 +53,33 @@ def test_flags_visible_instructions_as_injection() -> None:
     assert "Ignore all previous instructions" in warning.message
 
 
-def test_no_readable_text_raises_no_text() -> None:
+@pytest.mark.parametrize(
+    ("text", "image_share", "expected"),
+    [
+        ("Umowa ramowa z dnia 12.03.2026 r.", 0.0, False),
+        ("Strona 1", 0.0, True),
+        ("(cid:3)(cid:7)(cid:9)" * 10 + " Umowa", 0.0, True),
+        ("\ufffd\x01\x02" * 10 + " Umowa", 0.0, True),
+        ("BATES-000123 " * 3, 0.9, True),
+        ("BATES-000123 " * 3, 0.4, False),
+        ("Umowa " * 50, 1.0, False),
+    ],
+)
+def test_needs_ocr(text: str, image_share: float, expected: bool) -> None:
+    assert needs_ocr(text, image_share, min_chars=25) is expected
+
+
+def test_scan_under_a_short_text_layer_is_read_by_ocr(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ocr, "tesseract", lambda *_: ("Aneks nr 1: 13 100 PLN", 91.0))
+    result = extract(stamped_scan_pdf("BATES-000123 / PDF Insight test"))
+    assert result.pages == ["[Strona 1]\nAneks nr 1: 13 100 PLN"]
+    assert [(info.method, info.confidence) for info in result.page_info] == [("ocr", 91.0)]
+
+
+def test_no_readable_text_raises_no_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ocr, "tesseract", lambda *_: ("", 0.0))
     with pytest.raises(ApiError) as raised:
-        extract(image_pages_pdf("Aneks"), max_ocr_pages=0)
+        extract(image_pages_pdf("Aneks"))
     assert raised.value.code == ErrorCode.NO_TEXT
 
 
@@ -84,10 +109,10 @@ def test_ocr_reads_a_page_without_text_layer() -> None:
 
 
 @needs_tesseract
-def test_ocr_cap_skips_later_pages() -> None:
-    result = extract(image_pages_pdf("AAA 111", "BBB 222"), max_ocr_pages=1)
-    assert [info.method for info in result.page_info] == ["ocr", "text"]
-    assert [(w.code, w.page) for w in result.warnings] == [("OCR_USED", 1), ("PAGES_SKIPPED", 2)]
+def test_ocr_reads_every_scanned_page() -> None:
+    result = extract(image_pages_pdf(*[f"Strona {n}: {n}00 PLN" for n in range(1, 4)]))
+    assert [info.method for info in result.page_info] == ["ocr"] * 3
+    assert "300 PLN" in result.text
 
 
 def test_huge_page_renders_within_the_pixel_cap() -> None:

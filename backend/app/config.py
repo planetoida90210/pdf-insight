@@ -23,7 +23,6 @@ class Settings(BaseSettings):
 
     max_file_mb: int = 10
     max_pages: int = 200
-    max_ocr_pages: int = 30
     ocr_lang: str = "pol+eng"
     ocr_min_chars: int = 25
     ocr_min_confidence: float = 60

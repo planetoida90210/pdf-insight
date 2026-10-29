@@ -1,6 +1,7 @@
 """Per-page text extraction: visible text layer, hidden-text filter, OCR for scanned pages."""
 
 import logging
+import re
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, cast
@@ -26,6 +27,13 @@ logger = logging.getLogger(__name__)
 VISIBILITY_SCALE = 1.5
 # A glyph whose box has a smaller luminance spread is drawn in the background colour.
 MIN_LUMINANCE_SPREAD = 15
+# A page this much covered by images, with less text than SCAN_TEXT_CHARS, is a scan with a
+# stamped header or page number on top: its content is in the image.
+SCAN_IMAGE_SHARE = 0.5
+SCAN_TEXT_CHARS = 200
+# Glyphs whose font has no Unicode mapping: pdfminer's "(cid:N)", the replacement character and
+# control codes. A text layer made mostly of them is unreadable.
+UNMAPPED = re.compile(r"\(cid:\d+\)|[\x00-\x1f\x7f-\x9f\ufffd]")
 
 
 @dataclass(slots=True)
@@ -83,9 +91,7 @@ def _read_pages(
                     PageInfo(page=number, method="text", chars=0, confidence=None)
                 )
                 continue
-            ocr_pages = sum(info.method != "text" for info in result.page_info)
-            ocr_allowed = ocr_pages < settings.max_ocr_pages
-            info, text, warnings = _read_page(pdf, page, number, settings, vision, ocr_allowed)
+            info, text, warnings = _read_page(pdf, page, number, settings, vision)
             # pdfplumber keeps every parsed page otherwise; long documents would outgrow
             # the worker's memory cap.
             page.close()
@@ -106,18 +112,14 @@ def _read_page(
     number: int,
     settings: Settings,
     vision: OpenRouter | None,
-    ocr_allowed: bool,
 ) -> tuple[PageInfo, str, list[AnalysisWarning]]:
-    """The text layer when it has enough visible text, else the OCR text of the rendered page."""
+    """The visible text layer, or the OCR text of the rendered page when the page needs OCR."""
     pdf_page = pdf[number - 1]
     scale = render_scale(pdf_page, VISIBILITY_SCALE)
     visible, hidden = _visible_and_hidden_text(page, render_page(pdf_page, scale), scale)
     warnings = [warning(WarningCode.HIDDEN_TEXT, number, snippet=hidden)] if hidden else []
     text_info = PageInfo(page=number, method="text", chars=len(visible), confidence=None)
-    if len(visible) >= settings.ocr_min_chars:
-        return text_info, visible, warnings
-    if not ocr_allowed:
-        warnings.append(warning(WarningCode.PAGES_SKIPPED, number, limit=settings.max_ocr_pages))
+    if not needs_ocr(visible, _image_share(page), settings.ocr_min_chars):
         return text_info, visible, warnings
 
     ocr = ocr_page(
@@ -129,6 +131,29 @@ def _read_page(
     warnings += _ocr_warnings(ocr, number, settings.ocr_min_confidence)
     info = PageInfo(page=number, method=ocr.method, chars=len(ocr.text), confidence=ocr.confidence)
     return info, ocr.text, warnings
+
+
+def needs_ocr(text: str, image_share: float, min_chars: int) -> bool:
+    """Too little text, an unreadable text layer, or a scan under a short text overlay."""
+    chars = "".join(text.split())
+    unmapped = sum(len(match) for match in UNMAPPED.findall(chars))
+    return (
+        len(chars) < min_chars
+        or unmapped * 2 > len(chars)
+        or (image_share >= SCAN_IMAGE_SHARE and len(chars) < SCAN_TEXT_CHARS)
+    )
+
+
+def _image_share(page: Any) -> float:
+    """The part of the page covered by images, overlaps counted twice."""
+    x0, top, x1, bottom = page.bbox
+    covered = sum(
+        max(min(image["x1"], x1) - max(image["x0"], x0), 0)
+        * max(min(image["bottom"], bottom) - max(image["top"], top), 0)
+        for image in page.images
+    )
+    area = (x1 - x0) * (bottom - top)
+    return float(covered / area) if area else 0.0
 
 
 def _ocr_warnings(ocr: OcrResult, number: int, min_confidence: float) -> list[AnalysisWarning]:
