@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { statusMessage } from '../lib/analysisMachine';
+import { refuseDropsOutsideZone } from '../lib/dropGuard';
 import { addToHistory, clearHistory, readHistory, removeFromHistory } from '../lib/history';
 import type { AnalysisResult } from '../lib/schema';
 import { ErrorPanel } from './organisms/ErrorPanel';
@@ -16,6 +17,8 @@ export function App() {
   const view = opened ? 'history' : state.phase;
   const lastView = useRef(view);
   const showUpload = !opened && state.phase === 'idle';
+
+  useEffect(refuseDropsOutsideZone, []);
 
   // Po zmianie widoku fokus przechodzi na nagłówek nowego panelu, żeby klawiatura i czytnik ekranu nie zostały na usuniętym przycisku.
   useEffect(() => {
