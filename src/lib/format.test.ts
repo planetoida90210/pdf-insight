@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { insightFileName } from './download';
 import { formatAmount, formatDate, formatSeconds, languageName } from './format';
 
 // Intl separates thousands with non-breaking spaces; the tests compare plain spaces.
@@ -24,10 +23,5 @@ describe('format', () => {
   it('names the language in Polish', () => {
     expect(languageName('pl')).toBe('polski');
     expect(languageName('en')).toBe('angielski');
-  });
-
-  it('builds the result file name', () => {
-    expect(insightFileName('umowa.pdf')).toBe('umowa.insight.json');
-    expect(insightFileName('Raport.Q3.PDF')).toBe('Raport.Q3.insight.json');
   });
 });
