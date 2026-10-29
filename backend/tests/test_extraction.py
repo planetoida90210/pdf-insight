@@ -1,13 +1,15 @@
 import time
 from shutil import which
 
+import pypdfium2 as pdfium
 import pytest
 
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
 from app.extraction import Extraction, extract_pdf
 from app.grounding import dates_in
-from tests.pdfs import hidden_text_pdf, image_pages_pdf, text_pdf
+from app.ocr import MAX_RENDER_PIXELS, OCR_SCALE, render_page
+from tests.pdfs import hidden_text_pdf, huge_page_pdf, image_pages_pdf, text_pdf
 
 HAS_TESSERACT = which("tesseract") is not None
 needs_tesseract = pytest.mark.skipif(not HAS_TESSERACT, reason="tesseract binary not installed")
@@ -88,3 +90,13 @@ def test_ocr_cap_skips_later_pages() -> None:
     result = extract(image_pages_pdf("AAA 111", "BBB 222"), max_ocr_pages=1)
     assert [info.method for info in result.page_info] == ["ocr", "text"]
     assert [(w.code, w.page) for w in result.warnings] == [("OCR_USED", 1), ("PAGES_SKIPPED", 2)]
+
+
+def test_huge_page_renders_within_the_pixel_cap() -> None:
+    text = "Widoczny tekst na bardzo duzej stronie."
+    pdf = pdfium.PdfDocument(huge_page_pdf(text))
+    image = render_page(pdf[0], OCR_SCALE)
+    assert image.width * image.height <= MAX_RENDER_PIXELS
+    result = extract(huge_page_pdf(text))
+    assert result.pages == [f"[Strona 1]\n{text}"]
+    assert result.warnings == []

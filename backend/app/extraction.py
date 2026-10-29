@@ -15,7 +15,7 @@ from app.config import Settings
 from app.errors import ApiError, ErrorCode, WarningCode, warning
 from app.injection import find_injection
 from app.llm import OpenRouter
-from app.ocr import OcrResult, ocr_page, render_page
+from app.ocr import OcrResult, ocr_page, render_page, render_scale
 from app.prompts import PAGE_MARKER, PAGE_SEPARATOR
 from app.schema import AnalysisWarning, PageInfo
 from app.upload import open_pdf
@@ -94,7 +94,9 @@ def _read_page(
     ocr_allowed: bool,
 ) -> tuple[PageInfo, str, list[AnalysisWarning]]:
     """The text layer when it has enough visible text, else the OCR text of the rendered page."""
-    visible, hidden = _visible_and_hidden_text(page, render_page(pdf, number - 1, VISIBILITY_SCALE))
+    pdf_page = pdf[number - 1]
+    scale = render_scale(pdf_page, VISIBILITY_SCALE)
+    visible, hidden = _visible_and_hidden_text(page, render_page(pdf_page, scale), scale)
     warnings = [warning(WarningCode.HIDDEN_TEXT, number, snippet=hidden)] if hidden else []
     text_info = PageInfo(page=number, method="text", chars=len(visible), confidence=None)
     if len(visible) >= settings.ocr_min_chars:
@@ -104,8 +106,7 @@ def _read_page(
         return text_info, visible, warnings
 
     ocr = ocr_page(
-        pdf,
-        number - 1,
+        pdf_page,
         lang=settings.ocr_lang,
         min_confidence=settings.ocr_min_confidence,
         vision=vision,
@@ -123,7 +124,7 @@ def _ocr_warnings(ocr: OcrResult, number: int, min_confidence: float) -> list[An
     return warnings
 
 
-def _visible_and_hidden_text(page: Any, rendered: Image.Image) -> tuple[str, str]:
+def _visible_and_hidden_text(page: Any, rendered: Image.Image, scale: float) -> tuple[str, str]:
     """Splits the text layer by what the rendered page actually shows.
 
     Whitespace glyphs are kept on both sides so pdfplumber can lay out words and lines.
@@ -132,7 +133,7 @@ def _visible_and_hidden_text(page: Any, rendered: Image.Image) -> tuple[str, str
     hidden = {
         id(char)
         for char in page.chars
-        if not char["text"].isspace() and not _glyph_visible(char, gray)
+        if not char["text"].isspace() and not _glyph_visible(char, gray, scale)
     }
     if not hidden:
         return page.extract_text().strip(), ""
@@ -143,11 +144,9 @@ def _visible_and_hidden_text(page: Any, rendered: Image.Image) -> tuple[str, str
     return visible.strip(), " ".join(hidden_text.split())
 
 
-def _glyph_visible(char: dict[str, Any], gray: Image.Image) -> bool:
+def _glyph_visible(char: dict[str, Any], gray: Image.Image, scale: float) -> bool:
     """Tiny, off-page or flat-coloured glyphs (e.g. white on white) are not visible."""
-    x0, top, x1, bottom = (
-        int(char[key] * VISIBILITY_SCALE) for key in ("x0", "top", "x1", "bottom")
-    )
+    x0, top, x1, bottom = (int(char[key] * scale) for key in ("x0", "top", "x1", "bottom"))
     box = (
         max(x0, 0),
         max(top, 0),

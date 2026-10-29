@@ -2,6 +2,7 @@
 
 import io
 import logging
+import math
 from dataclasses import dataclass
 from typing import Literal
 
@@ -17,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 # 300 DPI: PDF user space is 72 units per inch.
 OCR_SCALE = 300 / 72
+# About A4 at 300 DPI. Larger pages render at a lower scale, so a huge page box cannot
+# allocate gigabytes for one bitmap.
+MAX_RENDER_PIXELS = 9_000_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,20 +30,25 @@ class OcrResult:
     method: Literal["ocr", "vision"]
 
 
-def render_page(pdf: pdfium.PdfDocument, index: int, scale: float) -> Image.Image:
-    image: Image.Image = pdf[index].render(scale=scale).to_pil()
+def render_scale(page: pdfium.PdfPage, scale: float) -> float:
+    """`scale`, lowered when the bitmap would exceed MAX_RENDER_PIXELS."""
+    width, height = page.get_size()
+    return min(scale, math.sqrt(MAX_RENDER_PIXELS / max(width * height, 1)))
+
+
+def render_page(page: pdfium.PdfPage, scale: float) -> Image.Image:
+    image: Image.Image = page.render(scale=render_scale(page, scale)).to_pil()
     return image.convert("RGB")
 
 
 def ocr_page(
-    pdf: pdfium.PdfDocument,
-    index: int,
+    page: pdfium.PdfPage,
     *,
     lang: str,
     min_confidence: float,
     vision: OpenRouter | None,
 ) -> OcrResult:
-    image = render_page(pdf, index, OCR_SCALE)
+    image = render_page(page, OCR_SCALE)
     text, confidence = tesseract(image, lang)
     if vision is None or confidence >= min_confidence:
         return OcrResult(text, confidence, "ocr")

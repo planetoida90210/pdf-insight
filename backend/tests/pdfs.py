@@ -15,6 +15,15 @@ def text_pdf(*pages: str, password: str | None = None) -> bytes:
     return bytes(pdf.output())
 
 
+def huge_page_pdf(text: str) -> bytes:
+    """One 200 x 200 inch page, the largest size the PDF format allows."""
+    pdf = FPDF(unit="pt", format=(14400, 14400))
+    pdf.add_page()
+    pdf.set_font("helvetica", size=400)
+    pdf.multi_cell(w=0, text=text)
+    return bytes(pdf.output())
+
+
 def hidden_text_pdf() -> bytes:
     """White text on a white page: present in the text layer, invisible when rendered."""
     pdf = FPDF()

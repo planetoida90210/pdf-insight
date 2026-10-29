@@ -15,7 +15,7 @@ def unsure_tesseract(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def read(vision: FakeLlm | None) -> ocr.OcrResult:
-    return ocr.ocr_page(cast(Any, None), 0, lang="pol", min_confidence=60, vision=vision)
+    return ocr.ocr_page(cast(Any, None), lang="pol", min_confidence=60, vision=vision)
 
 
 def test_low_confidence_page_is_transcribed_by_vision() -> None:
