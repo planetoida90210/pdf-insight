@@ -30,6 +30,10 @@ def test_reads_polish_english_and_iso_dates() -> None:
     }
 
 
+def test_skips_month_names_that_match_only_through_case_folding() -> None:
+    assert dates_in("1 \u017ftycznia 2024, 2 lutego 2024") == {"2024-02-02"}
+
+
 def test_drops_ungrounded_values_and_counts_them() -> None:
     analysis = LlmAnalysis.model_validate(
         json.loads(

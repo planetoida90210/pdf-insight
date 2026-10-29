@@ -75,8 +75,10 @@ def dates_in(text: str) -> set[str]:
     for pattern, (year, month, day) in DATE_PATTERNS:
         for match in pattern.finditer(text):
             month_text = match[month].lower()
-            month_number = int(month_text) if month_text.isdigit() else MONTHS[month_text]
-            with suppress(ValueError):
+            # KeyError: IGNORECASE lets long s (U+017F) and dotless i (U+0131) match "s" and "i",
+            # but .lower() keeps them, so the name is not in MONTHS.
+            with suppress(KeyError, ValueError):
+                month_number = int(month_text) if month_text.isdigit() else MONTHS[month_text]
                 found.add(date(int(match[year]), month_number, int(match[day])).isoformat())
     return found
 
