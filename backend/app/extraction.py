@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Literal
@@ -19,8 +20,9 @@ from app.schema import AnalysisWarning, PageInfo
 
 logger = logging.getLogger("pdf_insight")
 
-# Render scale for visibility checks (~144 DPI). Kept low so filtering stays cheap.
-VISIBILITY_SCALE = 2.0
+# Visibility render (~108 DPI). Lowest scale that still separates white-on-white
+# from white-on-dark on the brief / test PDFs; cheaper than 2x on shared CPU.
+VISIBILITY_SCALE = 1.5
 # max-min luminance below this => glyph region is flat (same colour as background).
 LUMINANCE_THRESHOLD = 15.0
 HIDDEN_SNIPPET_MAX = 160
@@ -119,12 +121,17 @@ def extract_pdf(
     settings: Settings,
     *,
     vision: VisionFallback | None = None,
+    deadline: float | None = None,
 ) -> ExtractionResult:
     """Extract visible text, OCR sparse pages, assemble warnings and markers."""
     warnings: list[AnalysisWarning] = []
     page_results: list[PageResult] = []
     ocr_used = 0
     vision_fn: VisionFallback = vision or vision_fallback
+
+    def _check_deadline() -> None:
+        if deadline is not None and time.monotonic() > deadline:
+            raise ApiError(ErrorCode.TIMEOUT)
 
     # pdfplumber for char boxes; pdfium for rendering (and later OCR).
     with pdfplumber.open(BytesIO(data)) as plumber, pdfium.PdfDocument(data) as pdf:
@@ -133,6 +140,7 @@ def extract_pdf(
             raise ApiError(ErrorCode.INVALID_PDF)
 
         for index, plumber_page in enumerate(plumber.pages):
+            _check_deadline()
             page_no = index + 1
             rendered = render_page(pdf, index, VISIBILITY_SCALE)
             chars = [dict(char) for char in plumber_page.chars]

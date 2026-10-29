@@ -20,7 +20,7 @@ OCR_RENDER_SCALE = 300 / 72
 class OcrResult:
     text: str
     confidence: float
-    method: str = "ocr"  # "ocr" | "vision" once B3 wires the fallback
+    method: str = "ocr"  # "ocr" | "vision"
 
 
 def render_page(pdf: pdfium.PdfDocument, page_index: int, scale: float) -> Image.Image:
