@@ -59,11 +59,12 @@ describe('analysisReducer', () => {
     expect(extracting).toMatchObject({ step: 1, extraction: null, ocr: null });
     const progress = { done: 2, total: 5 };
     expect(analysisReducer(extracting, { type: 'ocr', progress })).toMatchObject({ ocr: progress });
-    const analyzing = analysisReducer(extracting, {
+    const read = analysisReducer(extracting, { type: 'ocr', progress: { done: 3, total: 3 } });
+    const analyzing = analysisReducer(read, {
       type: 'analyzing',
       extraction: extraction('e2'),
     });
-    expect(analyzing).toMatchObject({ step: 2, extraction: { extractionId: 'e2' } });
+    expect(analyzing).toMatchObject({ step: 2, extraction: { extractionId: 'e2' }, ocr: null });
   });
 
   it('a failure keeps the step and extraction, so only that step is retried', () => {

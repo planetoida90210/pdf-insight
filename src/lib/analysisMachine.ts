@@ -44,7 +44,7 @@ export function analysisReducer(state: AnalysisState, action: AnalysisAction): A
     case 'ocr':
       return { ...state, ocr: action.progress };
     case 'analyzing':
-      return { ...state, step: 2, extraction: action.extraction };
+      return { ...state, step: 2, extraction: action.extraction, ocr: null };
     case 'done':
       return { phase: 'done', file: state.file, result: action.result };
     case 'fail': {
