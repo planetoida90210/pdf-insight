@@ -32,10 +32,12 @@ class OpenRouter:
         prompt: str,
         image_png: bytes | None = None,
         json_schema: dict[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> str:
         """Returns the answer text; provider failures raise ApiError (AI_UNAVAILABLE or TIMEOUT).
 
         Every call takes one unit of the daily budget; DAILY_LIMIT once it is used up.
+        `timeout` (seconds) replaces LLM_TIMEOUT_SECONDS for this call.
         """
         if not self._budget.hit():
             logger.error("daily LLM call limit reached")
@@ -60,11 +62,12 @@ class OpenRouter:
                 "type": "json_schema",
                 "json_schema": {"name": "analysis", "strict": True, "schema": json_schema},
             }
-        return _answer_text(self._post(body))
+        return _answer_text(self._post(body, timeout))
 
-    def _post(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _post(self, body: dict[str, Any], timeout: float | None) -> dict[str, Any]:
+        limit = httpx2.USE_CLIENT_DEFAULT if timeout is None else timeout
         try:
-            response = self._client.post("/chat/completions", json=body)
+            response = self._client.post("/chat/completions", json=body, timeout=limit)
             data = response.json()
         except httpx2.TimeoutException as error:
             raise _provider_error(408, type(error).__name__) from error

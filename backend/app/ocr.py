@@ -49,13 +49,18 @@ def tesseract(image: Image.Image, lang: str) -> tuple[str, float]:
     return text, sum(confidences) / len(confidences) if confidences else 0.0
 
 
-def transcribe(vision: OpenRouter, image: Image.Image) -> str:
-    """Vision is a best-effort fallback: a provider error keeps the Tesseract text."""
+def transcribe(vision: OpenRouter, image: Image.Image, timeout: float) -> str:
+    """Vision is a best-effort fallback: a provider error or no time left keeps the OCR text."""
+    if timeout <= 0:
+        return ""
     png = io.BytesIO()
     image.save(png, format="PNG")
     try:
         text = vision.generate(
-            system=VISION_SYSTEM_PROMPT, prompt=VISION_PROMPT, image_png=png.getvalue()
+            system=VISION_SYSTEM_PROMPT,
+            prompt=VISION_PROMPT,
+            image_png=png.getvalue(),
+            timeout=timeout,
         )
         return text.strip()
     except ApiError as error:
