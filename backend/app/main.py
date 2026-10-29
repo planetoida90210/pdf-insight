@@ -33,6 +33,14 @@ MULTIPART_OVERHEAD = 64 * 1024
 # would not fit in a 512 MiB instance; on one shared vCPU it would not finish sooner either.
 EXTRACT_CONCURRENCY = 1
 FILE_NAME_MAX = 255
+# The API answers JSON only: nothing in a response may be rendered, framed, sniffed or cached.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+    "Strict-Transport-Security": "max-age=31536000",
+}
 
 
 def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
@@ -61,6 +69,13 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
     # the browser can then show the Polish message instead of a network error.
     @app.middleware("http")
     async def guard(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        response = await _guarded(request, call_next)
+        response.headers.update(SECURITY_HEADERS)
+        return response
+
+    async def _guarded(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         # Both checks run before FastAPI reads the body, so a rejected upload is never parsed.

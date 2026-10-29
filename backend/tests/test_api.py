@@ -53,6 +53,13 @@ def test_api_error_keeps_headers_and_cors(client: TestClient) -> None:
     assert response.json()["error"]["message"] == "Zbyt wiele żądań. Spróbuj ponownie za chwilę."
 
 
+def test_every_response_carries_security_headers(client: TestClient) -> None:
+    for response in (client.get("/api/health"), client.get("/api/limited")):
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["content-security-policy"].startswith("default-src 'none'")
+        assert response.headers["cache-control"] == "no-store"
+
+
 def test_unhandled_error_hides_details(client: TestClient) -> None:
     response = client.get("/api/boom", headers={"Origin": ORIGIN})
     assert response.status_code == 500
