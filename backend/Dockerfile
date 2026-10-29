@@ -1,4 +1,4 @@
-# ghcr base (includes Python 3.12 + uv). Docker Hub was unreachable from this host.
+# Official uv image: Python 3.12 slim with uv preinstalled.
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -13,7 +13,6 @@ RUN apt-get update \
         tesseract-ocr \
         tesseract-ocr-pol \
         tesseract-ocr-eng \
-        curl \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
