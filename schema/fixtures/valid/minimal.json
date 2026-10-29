@@ -1,0 +1,27 @@
+{
+  "document": {
+    "fileName": "notatka.pdf",
+    "pages": 1,
+    "language": "en",
+    "type": "inne",
+    "title": null,
+    "date": null
+  },
+  "summary": "The note lists three tasks for the team. It has no dates or amounts. No author is given.",
+  "keyPoints": ["Three tasks are listed", "No deadlines are given", "No author is named"],
+  "entities": { "organizations": [], "people": [] },
+  "amounts": [],
+  "dates": [],
+  "keywords": [],
+  "warnings": [],
+  "meta": {
+    "schemaVersion": "1.0",
+    "analyzedAt": "2026-10-29T17:45:00Z",
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "ocrPages": [],
+    "hiddenTextPages": [],
+    "chunks": 1,
+    "processingMs": 0
+  }
+}

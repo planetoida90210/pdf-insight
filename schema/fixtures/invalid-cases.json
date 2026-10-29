@@ -1,0 +1,23 @@
+[
+  { "name": "missing summary", "path": ["summary"], "delete": true },
+  { "name": "empty summary", "path": ["summary"], "value": "" },
+  { "name": "missing entities", "path": ["entities"], "delete": true },
+  { "name": "unknown document type", "path": ["document", "type"], "value": "kontrakt" },
+  { "name": "language not ISO 639-1", "path": ["document", "language"], "value": "pol" },
+  { "name": "document date not ISO 8601", "path": ["document", "date"], "value": "12.03.2026" },
+  { "name": "impossible calendar date", "path": ["document", "date"], "value": "2026-02-30" },
+  { "name": "zero pages", "path": ["document", "pages"], "value": 0 },
+  { "name": "currency not ISO 4217", "path": ["amounts", 0, "currency"], "value": "zł" },
+  { "name": "amount value as string", "path": ["amounts", 0, "value"], "value": "184 500,00" },
+  { "name": "amount without context", "path": ["amounts", 0, "context"], "value": "" },
+  { "name": "date entry not ISO 8601", "path": ["dates", 0, "date"], "value": "1 kwietnia 2026" },
+  { "name": "too few key points", "path": ["keyPoints"], "value": ["Jeden", "Dwa"] },
+  {
+    "name": "too many key points",
+    "path": ["keyPoints"],
+    "value": ["1", "2", "3", "4", "5", "6", "7", "8"]
+  },
+  { "name": "keywords not an array", "path": ["keywords"], "value": "CRM, SLA" },
+  { "name": "warning code lowercase", "path": ["warnings", 0, "code"], "value": "hidden_text" },
+  { "name": "missing meta", "path": ["meta"], "delete": true }
+]

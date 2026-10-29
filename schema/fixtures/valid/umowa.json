@@ -1,0 +1,65 @@
+{
+  "document": {
+    "fileName": "umowa.pdf",
+    "pages": 12,
+    "language": "pl",
+    "type": "umowa",
+    "title": "Umowa ramowa nr 14/2026 o wdrożenie i utrzymanie systemu CRM",
+    "date": "2026-03-12"
+  },
+  "summary": "Umowa ramowa dotyczy wdrożenia i utrzymania systemu CRM dla Nordwave Logistics przez Kwadrat Software. Obowiązuje od 1 kwietnia 2026 r. do 31 marca 2028 r. Wynagrodzenie za wdrożenie wynosi 184 500,00 zł netto, a abonament za utrzymanie 12 300,00 PLN netto miesięcznie. Aneks nr 1 podnosi abonament do 13 100,00 PLN netto od 1 kwietnia 2027 r. i zwiększa liczbę użytkowników do 135.",
+  "keyPoints": [
+    "Okres obowiązywania: 1.04.2026–31.03.2028 z automatycznym przedłużeniem o 12 miesięcy",
+    "Wdrożenie w pięciu etapach, Go-live 12 października 2026 r.",
+    "Gwarantowana dostępność Systemu 99,5% w skali miesiąca",
+    "Aneks nr 1: abonament 13 100,00 PLN netto od 1.04.2027, 135 użytkowników"
+  ],
+  "entities": {
+    "organizations": ["Nordwave Logistics sp. z o.o.", "Kwadrat Software S.A."],
+    "people": ["Anna Kowalczyk", "Marek Zieliński", "Paweł Dąbrowski"]
+  },
+  "amounts": [
+    {
+      "value": 184500.0,
+      "currency": "PLN",
+      "context": "wynagrodzenie ryczałtowe za wdrożenie netto"
+    },
+    { "value": 12300.0, "currency": "PLN", "context": "abonament miesięczny netto do 31.03.2027" },
+    {
+      "value": 13100.0,
+      "currency": "PLN",
+      "context": "abonament miesięczny netto od 1.04.2027 (Aneks nr 1)"
+    },
+    { "value": 8600.0, "currency": "EUR", "context": "licencje modułu analitycznego rocznie" },
+    { "value": 890.0, "currency": "USD", "context": "infrastruktura chmurowa miesięcznie" }
+  ],
+  "dates": [
+    { "date": "2026-04-01", "context": "początek obowiązywania umowy" },
+    { "date": "2028-03-31", "context": "koniec obowiązywania umowy" },
+    { "date": "2026-10-12", "context": "planowany Go-live" },
+    { "date": "2027-04-01", "context": "nowa wysokość abonamentu" }
+  ],
+  "keywords": ["CRM", "SLA", "wdrożenie", "abonament", "aneks"],
+  "warnings": [
+    {
+      "code": "HIDDEN_TEXT",
+      "page": 4,
+      "message": "Na stronie 4 wykryto niewidoczny tekst. Pominięto go w analizie."
+    },
+    {
+      "code": "OCR_USED",
+      "page": 11,
+      "message": "Strona 11 nie ma warstwy tekstowej, odczytano ją przez OCR."
+    }
+  ],
+  "meta": {
+    "schemaVersion": "1.0",
+    "analyzedAt": "2026-10-29T17:45:00Z",
+    "provider": "gemini",
+    "model": "gemini-flash",
+    "ocrPages": [11],
+    "hiddenTextPages": [4],
+    "chunks": 1,
+    "processingMs": 8421
+  }
+}
