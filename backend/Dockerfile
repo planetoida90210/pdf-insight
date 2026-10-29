@@ -15,10 +15,12 @@ RUN uv sync --frozen --no-dev --no-install-project
 # Runtime: the official Python image with the virtualenv only, no uv and no package cache.
 FROM python:3.12-slim-bookworm
 
+# OMP_THREAD_LIMIT=1: on one vCPU, Tesseract's extra OpenMP threads only slow it down.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
-    PORT=8000
+    PORT=8000 \
+    OMP_THREAD_LIMIT=1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
