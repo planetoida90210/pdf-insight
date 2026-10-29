@@ -9,6 +9,7 @@ from app.chunking import merge_analyses, split_into_chunks
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
 from app.extraction import Extraction
+from app.prompts import PAGE_MARKER
 from app.schema import LlmAnalysis, PageInfo
 from tests.fakes import FakeLlm, llm_answer
 
@@ -20,7 +21,7 @@ def analysis(**overrides: object) -> LlmAnalysis:
 def long_extraction(*bodies: str) -> Extraction:
     return Extraction(
         file_name="long.pdf",
-        pages=[f"[Strona {n}]\n{body}" for n, body in enumerate(bodies, start=1)],
+        pages=[f"{PAGE_MARKER.format(page=n)}\n{body}" for n, body in enumerate(bodies, start=1)],
         page_info=[
             PageInfo(page=n, method="text", chars=len(body), confidence=None)
             for n, body in enumerate(bodies, start=1)
@@ -83,9 +84,9 @@ def test_merge_unions_lists_and_picks_document_fields() -> None:
 def test_long_document_is_analysed_per_chunk_then_summarised() -> None:
     def respond(prompt: str) -> str:
         if "too long for one request" in prompt:
-            assert "Part 1:\nStreszczenie strony 1." in prompt
+            assert "- Punkt C\n\nStreszczenie strony 2." in prompt
             return llm_answer(keyPoints=["Całość 1", "Całość 2", "Całość 3"])
-        page = "1" if "[Strona 1]" in prompt else "2"
+        page = "1" if "=== 1 ===" in prompt else "2"
         return llm_answer(
             summarySentences=[f"Streszczenie strony {page}.", "Drugie zdanie.", "Trzecie zdanie."],
             entities={"organizations": [f"Firma {page}"], "people": []},
@@ -107,7 +108,7 @@ def test_long_document_is_analysed_per_chunk_then_summarised() -> None:
 
 def test_one_failing_chunk_fails_the_request() -> None:
     def respond(prompt: str) -> str:
-        if "[Strona 2]" in prompt:
+        if "=== 2 ===" in prompt:
             raise ApiError(ErrorCode.AI_UNAVAILABLE)
         return llm_answer()
 
@@ -121,9 +122,9 @@ def test_a_failing_chunk_drops_the_chunks_not_started() -> None:
     release = threading.Event()
 
     def respond(prompt: str) -> str:
-        if "[Strona 1]" in prompt:
+        if "=== 1 ===" in prompt:
             release.wait(5)
-        if "[Strona 2]" in prompt:
+        if "=== 2 ===" in prompt:
             raise ApiError(ErrorCode.AI_UNAVAILABLE)
         time.sleep(0.2)
         return llm_answer()

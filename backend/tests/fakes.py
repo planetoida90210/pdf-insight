@@ -6,6 +6,7 @@ import httpx2
 
 from app.extraction import Extraction
 from app.llm import BASE_URL, OpenRouter
+from app.prompts import PAGE_MARKER
 from app.ratelimit import DailyCounter
 from app.schema import AnalysisWarning, PageInfo
 
@@ -65,7 +66,7 @@ def extraction(
 ) -> Extraction:
     return Extraction(
         file_name="umowa.pdf",
-        pages=[f"[Strona 1]\n{text}"],
+        pages=[f"{PAGE_MARKER.format(page=1)}\n{text}"],
         page_info=page_info or [PageInfo(page=1, method="text", chars=len(text), confidence=None)],
         warnings=warnings or [],
     )

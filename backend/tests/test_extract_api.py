@@ -34,7 +34,7 @@ def test_returns_page_info_and_caches_the_text() -> None:
     assert body["warnings"] == []
     cached = cast(TtlCache[Extraction], app.state.cache).get(body["extractionId"])
     assert cached is not None
-    assert cached.pages == [f"[Strona 1]\n{PAGE}"]
+    assert cached.pages == [f"=== 1 ===\n{PAGE}"]
 
 
 def extract_with_ocr(client: TestClient, ocr: bytes, file_name: str | None = "blob") -> Response:
