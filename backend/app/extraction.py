@@ -1,5 +1,6 @@
 """Per-page text extraction: visible text layer, hidden-text filter, OCR for scanned pages."""
 
+import heapq
 import logging
 import re
 import threading
@@ -41,8 +42,6 @@ SCAN_TEXT_CHARS = 200
 # them is unreadable.
 UNMAPPED = re.compile(r"[\x00-\x1f\x7f-\x9f\ufffd]")
 HYPHEN_AT_LINE_END = 0x2
-# Vision calls in flight at once; each holds a rendered page and its PNG in the worker's memory.
-VISION_CONCURRENCY = 4
 # The web process kills the worker EXTRACT_TIMEOUT_SECONDS after starting it. Vision calls end
 # this much earlier, so the worker still sends its result back in time.
 DEADLINE_MARGIN_SECONDS = 5
@@ -181,12 +180,17 @@ def _transcribe_unsure(
     settings: Settings,
     deadline: float,
 ) -> None:
-    """Gives pages that OCR read with low confidence a vision model's text, in parallel."""
-    unsure = [
-        page
-        for page in pages
-        if page.info.confidence is not None and page.info.confidence < settings.ocr_min_confidence
-    ]
+    """Gives the VISION_MAX_PAGES pages that OCR read with the lowest confidence a vision
+    model's text, in one parallel round.
+
+    Tesseract is as confident about the garbled text of a photographed or sideways page as about
+    a clean scan, so no confidence threshold can pick those pages out.
+    """
+    scored = [(page.info.confidence, page) for page in pages if page.info.confidence is not None]
+    lowest = heapq.nsmallest(settings.vision_max_pages, scored, key=lambda item: item[0])
+    unsure = [page for _, page in lowest]
+    if not unsure:
+        return
     # pdfium must not be called from two threads at once.
     render_lock = threading.Lock()
 
@@ -195,11 +199,12 @@ def _transcribe_unsure(
             # Pages left when the time is up keep their OCR text without being rendered.
             if time.monotonic() >= deadline:
                 return ""
-            image = render_page(pdf[page.info.page - 1], OCR_SCALE)
+            with closing(pdf[page.info.page - 1]) as pdf_page:
+                image = render_page(pdf_page, OCR_SCALE)
         timeout = min(settings.llm_timeout_seconds, deadline - time.monotonic())
         return transcribe(vision, image, timeout)
 
-    with ThreadPoolExecutor(VISION_CONCURRENCY) as pool:
+    with ThreadPoolExecutor(len(unsure)) as pool:
         for page, transcript in zip(unsure, pool.map(read, unsure), strict=True):
             if transcript:
                 number = page.info.page

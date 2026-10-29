@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     ocr_min_chars: int = 25
     ocr_min_confidence: float = 60
     vision_fallback: bool = True
+    # Pages per upload that vision transcribes, all at once: each holds a rendered page and its
+    # PNG in the extraction worker's memory.
+    vision_max_pages: int = 4
     max_text_chars: int = 2_000_000
     # 150,000 characters are about 50,000 tokens: far inside Haiku 5.5's 1M context and under the
     # 100,000-token prompt size past which its input costs 5x more. A dense 200-page document
