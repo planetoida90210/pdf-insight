@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 
 import pytest
 
@@ -113,3 +115,23 @@ def test_one_failing_chunk_fails_the_request() -> None:
     with pytest.raises(ApiError) as raised:
         analyze_extraction(FakeLlm(respond), long_extraction(text, text), Settings(chunk_chars=150))
     assert raised.value.code == ErrorCode.AI_UNAVAILABLE
+
+
+def test_a_failing_chunk_drops_the_chunks_not_started() -> None:
+    release = threading.Event()
+
+    def respond(prompt: str) -> str:
+        if "[Strona 1]" in prompt:
+            release.wait(5)
+        if "[Strona 2]" in prompt:
+            raise ApiError(ErrorCode.AI_UNAVAILABLE)
+        time.sleep(0.2)
+        return llm_answer()
+
+    llm = FakeLlm(respond)
+    text = "x" * 100
+    with pytest.raises(ApiError):
+        analyze_extraction(llm, long_extraction(*[text] * 8), Settings(chunk_chars=150))
+    release.set()
+    # Pages 1-3 start together; page 2's worker may pick up page 4 before the rest is dropped.
+    assert len(llm.prompts) <= 4

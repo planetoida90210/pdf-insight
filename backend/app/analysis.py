@@ -2,7 +2,7 @@
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 
 from app.chunking import merge_analyses, split_into_chunks
@@ -70,12 +70,24 @@ def _analyze_chunks(llm: OpenRouter, chunks: list[str], deadline: float) -> LlmA
     """One chunk: one analysis. More: analyse each, merge them, then summarise the summaries."""
     if len(chunks) == 1:
         return _ask(llm, ANALYZE_TASK, chunks[0], deadline)
-    with ThreadPoolExecutor(CHUNK_CONCURRENCY) as pool:
-        parts = list(pool.map(lambda chunk: _ask(llm, ANALYZE_TASK, chunk, deadline), chunks))
+    parts = _ask_each(llm, chunks, deadline)
     overview = _ask(llm, REDUCE_TASK, parts_digest(parts), deadline)
     return merge_analyses(parts).model_copy(
         update={"summary": overview.summary, "key_points": overview.key_points}
     )
+
+
+def _ask_each(llm: OpenRouter, chunks: list[str], deadline: float) -> list[LlmAnalysis]:
+    """Chunks in parallel; the first failure drops the chunks not started yet and is raised
+    at once, without waiting for the calls in flight."""
+    pool = ThreadPoolExecutor(CHUNK_CONCURRENCY)
+    futures = [pool.submit(_ask, llm, ANALYZE_TASK, chunk, deadline) for chunk in chunks]
+    try:
+        for future in as_completed(futures):
+            future.result()
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return [future.result() for future in futures]
 
 
 def _ask(llm: OpenRouter, task: str, document: str, deadline: float) -> LlmAnalysis:
