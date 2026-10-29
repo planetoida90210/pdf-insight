@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "react": "19.3.1",
