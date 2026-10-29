@@ -15,7 +15,7 @@ from starlette.exceptions import HTTPException
 
 from app.analysis import analyze_extraction
 from app.cache import TtlCache
-from app.config import Settings, configure_logging, get_settings
+from app.config import Settings, configure_logging, error_frames, get_settings
 from app.errors import ApiError, ErrorCode
 from app.extraction import Extraction, read_pdf
 from app.llm import OpenRouter, create_llm
@@ -86,7 +86,8 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
         try:
             return await call_next(request)
         except Exception as error:
-            logger.error("unhandled %s on %s", type(error).__name__, request.url.path)
+            name, path = type(error).__name__, request.url.path
+            logger.error("unhandled %s on %s\n%s", name, path, error_frames(error))
             return error_response(ApiError(ErrorCode.INTERNAL))
 
     app.add_middleware(

@@ -1,6 +1,7 @@
 """Runtime settings, read from environment variables (documented in .env.example), and logging."""
 
 import logging
+import traceback
 from functools import lru_cache
 
 from pydantic import SecretStr
@@ -56,3 +57,8 @@ def configure_logging() -> None:
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
     for name in PDF_PARSER_LOGGERS:
         logging.getLogger(name).setLevel(logging.CRITICAL)
+
+
+def error_frames(error: BaseException) -> str:
+    """File, line and code of every frame, without the message, which may quote the document."""
+    return "".join(traceback.format_tb(error.__traceback__))

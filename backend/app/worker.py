@@ -9,7 +9,7 @@ from multiprocessing.connection import Connection
 from pathlib import Path
 from typing import Any
 
-from app.config import configure_logging
+from app.config import configure_logging, error_frames
 from app.errors import ApiError, ErrorCode
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ def _run(sender: Connection, memory_mb: int, task: Callable[..., Any], args: Any
     except MemoryError:
         sender.send((False, ApiError(ErrorCode.INVALID_PDF)))
     except Exception as error:
-        logger.error("extraction worker failed: %s", type(error).__name__)
+        logger.error("extraction worker failed: %s\n%s", type(error).__name__, error_frames(error))
         sender.send((False, ApiError(ErrorCode.INTERNAL)))
 
 
