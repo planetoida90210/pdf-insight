@@ -15,10 +15,10 @@ from app.config import Settings
 from app.errors import ApiError, ErrorCode, WarningCode, warning
 from app.injection import find_injection
 from app.llm import OpenRouter, create_llm
-from app.ocr import OcrResult, ocr_page, render_page, render_scale
+from app.ocr import OCR_SCALE, render_page, render_scale, tesseract, transcribe
 from app.prompts import PAGE_MARKER, PAGE_SEPARATOR
 from app.ratelimit import DailyCounter
-from app.schema import AnalysisWarning, PageInfo
+from app.schema import AnalysisWarning, OcrPage, PageInfo
 from app.upload import open_pdf
 
 logger = logging.getLogger(__name__)
@@ -48,20 +48,35 @@ class Extraction:
         return PAGE_SEPARATOR.join(self.pages)
 
 
-def read_pdf(data: bytes, file_name: str, settings: Settings, budget: DailyCounter) -> Extraction:
+def read_pdf(
+    data: bytes,
+    file_name: str,
+    settings: Settings,
+    budget: DailyCounter,
+    browser_ocr: dict[int, OcrPage],
+) -> Extraction:
     """extract_pdf for the worker process, which builds its own vision client: an open HTTP
     client cannot cross the process boundary."""
     enabled = settings.vision_fallback and settings.openrouter_api_key
     vision = create_llm(settings, budget) if enabled else None
-    return extract_pdf(data, file_name, settings, vision=vision)
+    return extract_pdf(data, file_name, settings, vision=vision, browser_ocr=browser_ocr)
 
 
 def extract_pdf(
-    data: bytes, file_name: str, settings: Settings, *, vision: OpenRouter | None
+    data: bytes,
+    file_name: str,
+    settings: Settings,
+    *,
+    vision: OpenRouter | None,
+    browser_ocr: dict[int, OcrPage],
 ) -> Extraction:
-    """The visible text of every page and its warnings; ApiError when the file cannot be read."""
+    """The visible text of every page and its warnings; ApiError when the file cannot be read.
+
+    `browser_ocr` is the text the browser read from pages it took for scans; it replaces
+    Tesseract on the pages that need OCR.
+    """
     try:
-        result = _read_pages(data, file_name, settings, vision)
+        result = _read_pages(data, file_name, settings, vision, browser_ocr)
     except (PdfminerException, pdfium.PdfiumError) as error:
         # The two parsers disagree on damaged files: pdfium repairs some that pdfminer cannot
         # parse, pdfminer finds pages that pdfium cannot load.
@@ -80,13 +95,20 @@ def extract_pdf(
 
 
 def _read_pages(
-    data: bytes, file_name: str, settings: Settings, vision: OpenRouter | None
+    data: bytes,
+    file_name: str,
+    settings: Settings,
+    vision: OpenRouter | None,
+    browser_ocr: dict[int, OcrPage],
 ) -> Extraction:
     result = Extraction(file_name=file_name, pages=[], page_info=[], warnings=[])
     chars = 0
     with open_pdf(data, settings.max_pages) as pdf, pdfplumber.open(BytesIO(data)) as plumber:
+        if any(number > len(pdf) for number in browser_ocr):
+            raise ApiError(ErrorCode.INVALID_REQUEST)
         for number, page in enumerate(plumber.pages, start=1):
-            info, text, warnings = _read_page(pdf, page, number, settings, vision)
+            browser = browser_ocr.get(number)
+            info, text, warnings = _read_page(pdf, page, number, settings, vision, browser)
             # pdfplumber keeps every parsed page otherwise; long documents would outgrow
             # the worker's memory cap.
             page.close()
@@ -106,8 +128,10 @@ def _read_page(
     number: int,
     settings: Settings,
     vision: OpenRouter | None,
+    browser: OcrPage | None,
 ) -> tuple[PageInfo, str, list[AnalysisWarning]]:
-    """The visible text layer, or the OCR text of the rendered page when the page needs OCR."""
+    """The visible text layer, or the page's OCR text when it needs OCR: the browser's if sent,
+    else Tesseract's; a vision model's when either is unsure."""
     pdf_page = pdf[number - 1]
     scale = render_scale(pdf_page, VISIBILITY_SCALE)
     visible, hidden = _visible_and_hidden_text(page, render_page(pdf_page, scale), scale)
@@ -116,15 +140,19 @@ def _read_page(
     if not needs_ocr(visible, _image_share(page), settings.ocr_min_chars):
         return text_info, visible, warnings
 
-    ocr = ocr_page(
-        pdf_page,
-        lang=settings.ocr_lang,
-        min_confidence=settings.ocr_min_confidence,
-        vision=vision,
-    )
-    warnings += _ocr_warnings(ocr, number, settings.ocr_min_confidence)
-    info = PageInfo(page=number, method=ocr.method, chars=len(ocr.text), confidence=ocr.confidence)
-    return info, ocr.text, warnings
+    if browser is None:
+        text, confidence = tesseract(render_page(pdf_page, OCR_SCALE), settings.ocr_lang)
+    else:
+        text, confidence = browser.text.strip(), browser.confidence
+    info = PageInfo(page=number, method="ocr", chars=len(text), confidence=confidence)
+    if (
+        vision is not None
+        and confidence < settings.ocr_min_confidence
+        and (transcript := transcribe(vision, render_page(pdf_page, OCR_SCALE)))
+    ):
+        text = transcript
+        info = PageInfo(page=number, method="vision", chars=len(text), confidence=None)
+    return info, text, warnings + _ocr_warnings(info, settings.ocr_min_confidence)
 
 
 def needs_ocr(text: str, image_share: float, min_chars: int) -> bool:
@@ -150,11 +178,12 @@ def _image_share(page: Any) -> float:
     return float(covered / area) if area else 0.0
 
 
-def _ocr_warnings(ocr: OcrResult, number: int, min_confidence: float) -> list[AnalysisWarning]:
-    used = WarningCode.VISION_USED if ocr.method == "vision" else WarningCode.OCR_USED
-    warnings = [warning(used, number)]
-    if ocr.confidence is not None and ocr.confidence < min_confidence:
-        warnings.append(warning(WarningCode.OCR_LOW_CONFIDENCE, number, confidence=ocr.confidence))
+def _ocr_warnings(info: PageInfo, min_confidence: float) -> list[AnalysisWarning]:
+    used = WarningCode.VISION_USED if info.method == "vision" else WarningCode.OCR_USED
+    warnings = [warning(used, info.page)]
+    if info.confidence is not None and info.confidence < min_confidence:
+        confidence = info.confidence
+        warnings.append(warning(WarningCode.OCR_LOW_CONFIDENCE, info.page, confidence=confidence))
     return warnings
 
 

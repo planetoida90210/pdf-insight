@@ -3,24 +3,32 @@ from shutil import which
 import pypdfium2 as pdfium
 import pytest
 
-from app import ocr
+from app import extraction
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
 from app.extraction import Extraction, extract_pdf, needs_ocr
 from app.ocr import MAX_RENDER_PIXELS, OCR_SCALE, render_page
+from app.schema import OcrPage
 from tests.pdfs import hidden_text_pdf, huge_page_pdf, image_pages_pdf, stamped_scan_pdf, text_pdf
 
 HAS_TESSERACT = which("tesseract") is not None
 needs_tesseract = pytest.mark.skipif(not HAS_TESSERACT, reason="tesseract binary not installed")
 
 
-def extract(data: bytes, **settings: object) -> Extraction:
+def extract(
+    data: bytes, browser_ocr: dict[int, OcrPage] | None = None, **settings: object
+) -> Extraction:
     return extract_pdf(
         data,
         "test.pdf",
         Settings(vision_fallback=False, **settings),  # type: ignore[arg-type]
         vision=None,
+        browser_ocr=browser_ocr or {},
     )
+
+
+def browser_page(page: int, text: str, confidence: float = 93.0) -> dict[int, OcrPage]:
+    return {page: OcrPage(page=page, text=text, confidence=confidence)}
 
 
 def test_keeps_words_and_lines_apart() -> None:
@@ -70,17 +78,33 @@ def test_needs_ocr(text: str, image_share: float, expected: bool) -> None:
 
 
 def test_scan_under_a_short_text_layer_is_read_by_ocr(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ocr, "tesseract", lambda *_: ("Aneks nr 1: 13 100 PLN", 91.0))
+    monkeypatch.setattr(extraction, "tesseract", lambda *_: ("Aneks nr 1: 13 100 PLN", 91.0))
     result = extract(stamped_scan_pdf("BATES-000123 / PDF Insight test"))
     assert result.pages == ["[Strona 1]\nAneks nr 1: 13 100 PLN"]
     assert [(info.method, info.confidence) for info in result.page_info] == [("ocr", 91.0)]
 
 
-def test_no_readable_text_raises_no_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ocr, "tesseract", lambda *_: ("", 0.0))
+def test_no_readable_text_raises_no_text() -> None:
     with pytest.raises(ApiError) as raised:
-        extract(image_pages_pdf("Aneks"))
+        extract(image_pages_pdf("Aneks"), browser_page(1, " \n"))
     assert raised.value.code == ErrorCode.NO_TEXT
+
+
+def test_browser_text_replaces_ocr_on_scanned_pages_only() -> None:
+    pages = text_pdf("Umowa ramowa z dnia 12.03.2026 r.")
+    ignored = extract(pages, browser_page(1, "Inny tekst"))
+    assert ignored.pages == ["[Strona 1]\nUmowa ramowa z dnia 12.03.2026 r."]
+
+    scan = extract(image_pages_pdf("Aneks"), browser_page(1, "Aneks nr 1\n13 100 PLN\n"))
+    assert scan.pages == ["[Strona 1]\nAneks nr 1\n13 100 PLN"]
+    assert [(info.method, info.confidence) for info in scan.page_info] == [("ocr", 93.0)]
+    assert [w.code for w in scan.warnings] == ["OCR_USED"]
+
+
+def test_browser_text_for_a_page_past_the_last_is_invalid() -> None:
+    with pytest.raises(ApiError) as raised:
+        extract(image_pages_pdf("Aneks"), browser_page(2, "Aneks"))
+    assert raised.value.code == ErrorCode.INVALID_REQUEST
 
 
 def test_damaged_pdf_that_pdfium_opens_is_invalid() -> None:

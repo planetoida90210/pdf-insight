@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     def max_file_bytes(self) -> int:
         return self.max_file_mb * 1024 * 1024
 
+    @property
+    def max_ocr_bytes(self) -> int:
+        """The browser's OCR part: at most max_text_chars characters, 4 bytes each in UTF-8."""
+        return self.max_text_chars * 4
+
 
 @lru_cache
 def get_settings() -> Settings:

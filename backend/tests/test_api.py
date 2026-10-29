@@ -11,7 +11,8 @@ ORIGIN = "https://planetoida90210.github.io"
 
 @pytest.fixture
 def app() -> FastAPI:
-    app = create_app(Settings(allowed_origins=f"{ORIGIN},http://localhost:5173", max_file_mb=1))
+    origins = f"{ORIGIN},http://localhost:5173"
+    app = create_app(Settings(allowed_origins=origins, max_file_mb=1, max_text_chars=1000))
 
     @app.get("/api/boom")
     async def boom() -> None:

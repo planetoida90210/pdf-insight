@@ -2,12 +2,13 @@ from typing import cast
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from httpx2 import Response
 
 from app.cache import TtlCache
 from app.config import Settings
 from app.extraction import Extraction
 from app.main import create_app
-from tests.pdfs import hidden_text_pdf, text_pdf
+from tests.pdfs import hidden_text_pdf, image_pages_pdf, text_pdf
 
 PAGE = "Strona testowa umowy z wystarczajaca iloscia widocznego tekstu."
 
@@ -34,6 +35,28 @@ def test_returns_page_info_and_caches_the_text() -> None:
     cached = cast(TtlCache[Extraction], app.state.cache).get(body["extractionId"])
     assert cached is not None
     assert cached.pages == [f"[Strona 1]\n{PAGE}"]
+
+
+def extract_with_ocr(client: TestClient, ocr: bytes, file_name: str | None = "blob") -> Response:
+    files = {"file": ("scan.pdf", image_pages_pdf("Aneks")), "ocr": (file_name, ocr)}
+    return client.post("/api/extract", files=files)
+
+
+def test_browser_ocr_part_fills_the_scanned_page() -> None:
+    client, _ = make_client()
+    response = extract_with_ocr(client, b'[{"page": 1, "text": "Aneks nr 1", "confidence": 88}]')
+    assert response.json()["pageInfo"] == [
+        {"page": 1, "method": "ocr", "chars": len("Aneks nr 1"), "confidence": 88.0}
+    ]
+
+
+def test_malformed_ocr_part_is_an_invalid_request() -> None:
+    client, _ = make_client()
+    for ocr in (b'[{"page": 1}]', b'[{"page": 2, "text": "Aneks", "confidence": 88}]'):
+        response = extract_with_ocr(client, ocr)
+        assert (response.status_code, response.json()["error"]["code"]) == (400, "INVALID_REQUEST")
+    as_form_field = extract_with_ocr(client, b"[]", file_name=None)
+    assert as_form_field.status_code == 400
 
 
 def test_type_is_decided_by_the_pdf_signature() -> None:

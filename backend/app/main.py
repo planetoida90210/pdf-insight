@@ -21,13 +21,13 @@ from app.extraction import Extraction, read_pdf
 from app.llm import OpenRouter, create_llm
 from app.ratelimit import DailyCounter, SlidingWindowLimiter, client_ip
 from app.schema import AnalysisResult, AnalyzeRequest, ExtractResponse
-from app.upload import read_pdf_upload
+from app.upload import read_ocr_upload, read_pdf_upload
 from app.worker import run_isolated
 
 configure_logging()
 logger = logging.getLogger(__name__)
 
-# Room for the multipart framing around the file in the Content-Length check.
+# Room for the multipart framing around the parts in the Content-Length check.
 MULTIPART_OVERHEAD = 64 * 1024
 # One extraction with OCR peaks near 300 MiB (parser process plus Tesseract), so a second one
 # would not fit in a 512 MiB instance; on one shared vCPU it would not finish sooner either.
@@ -104,11 +104,14 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
         return {"status": "ok"}
 
     @app.post("/api/extract")
-    async def extract(file: Annotated[UploadFile, File()]) -> ExtractResponse:
+    async def extract(
+        file: Annotated[UploadFile, File()], ocr: Annotated[UploadFile | None, File()] = None
+    ) -> ExtractResponse:
         file_name = (file.filename or "document.pdf")[:FILE_NAME_MAX]
         # Read inside the slot: queued uploads wait in Starlette's temporary files, not in RAM.
         async with extract_slots:
             data = await read_pdf_upload(file, settings)
+            ocr_pages = await read_ocr_upload(ocr, settings)
             extraction = await asyncio.to_thread(
                 run_isolated,
                 read_pdf,
@@ -116,6 +119,7 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
                 file_name,
                 settings,
                 budget,
+                ocr_pages,
                 timeout=settings.extract_timeout_seconds,
                 memory_mb=settings.extract_memory_mb,
             )
@@ -170,7 +174,7 @@ def _body_size_error(request: Request, settings: Settings) -> ApiError | None:
     length = request.headers.get("content-length", "")
     if not length.isdigit():
         return ApiError(ErrorCode.INVALID_REQUEST)
-    if int(length) > settings.max_file_bytes + MULTIPART_OVERHEAD:
+    if int(length) > settings.max_file_bytes + settings.max_ocr_bytes + MULTIPART_OVERHEAD:
         return ApiError(ErrorCode.FILE_TOO_LARGE, max_mb=settings.max_file_mb)
     return None
 

@@ -12,6 +12,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    TypeAdapter,
 )
 from pydantic.alias_generators import to_camel
 
@@ -114,6 +115,21 @@ class ExtractResponse(ApiModel):
     page_info: list[PageInfo]
     warnings: list[AnalysisWarning]
     expires_at: AwareDatetime
+
+
+# Far more than OCR reads from one page: a dense A4 page holds under 10,000 characters.
+OCR_PAGE_MAX_CHARS = 100_000
+
+
+class OcrPage(ApiModel):
+    """A page the browser read with OCR: the optional `ocr` part of POST /api/extract."""
+
+    page: PageNumber
+    text: Annotated[str, StringConstraints(max_length=OCR_PAGE_MAX_CHARS)]
+    confidence: Annotated[float, Field(ge=0, le=100, allow_inf_nan=False)]
+
+
+OCR_PAGES = TypeAdapter(list[OcrPage])
 
 
 class AnalyzeRequest(ApiModel):
