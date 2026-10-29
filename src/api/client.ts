@@ -1,8 +1,10 @@
 import { z } from 'zod';
-import { AppError, isErrorCode } from '../lib/errors';
+import { AppError, isErrorCode, type ErrorCode } from '../lib/errors';
 import {
   analysisResultSchema,
   extractResponseSchema,
+  healthResponseSchema,
+  type AiProvider,
   type AnalysisResult,
   type ExtractResponse,
 } from '../lib/schema';
@@ -11,17 +13,15 @@ import {
 const REQUEST_TIMEOUT_MS = 120_000;
 const HEALTH_TIMEOUT_MS = 5_000;
 
-const errorEnvelopeSchema = z.object({
-  error: z.object({ code: z.string(), message: z.string() }),
-});
+// Kod HTTP decyduje tylko wtedy, gdy odpowiedź nie ma koperty z naszym kodem błędu.
+const CODE_BY_STATUS: Partial<Record<number, ErrorCode>> = {
+  413: 'FILE_TOO_LARGE',
+  429: 'RATE_LIMITED',
+  503: 'AI_UNAVAILABLE',
+  504: 'TIMEOUT',
+};
 
-export const healthResponseSchema = z.object({
-  status: z.literal('ok'),
-  provider: z.enum(['gemini', 'anthropic']),
-});
-
-export type HealthResponse = z.infer<typeof healthResponseSchema>;
-export type AiProvider = HealthResponse['provider'];
+const errorEnvelopeSchema = z.object({ error: z.object({ code: z.string() }) });
 
 export const PROVIDER_LABELS: Record<AiProvider, string> = {
   gemini: 'Google Gemini',
@@ -34,87 +34,87 @@ function apiUrl(path: string): string {
   return `${import.meta.env.VITE_API_URL.replace(/\/+$/, '')}${path}`;
 }
 
-function retryAfterMessage(header: string | null): string | undefined {
-  const seconds = Number(header);
-  if (!header || !Number.isInteger(seconds) || seconds <= 0) return undefined;
-  return `Zbyt wiele zapytań w krótkim czasie. Spróbuj ponownie za ${seconds} s.`;
+function errorCode(status: number, body: unknown): ErrorCode {
+  const envelope = errorEnvelopeSchema.safeParse(body);
+  const code = envelope.success ? envelope.data.error.code : '';
+  return isErrorCode(code) ? code : (CODE_BY_STATUS[status] ?? 'INTERNAL');
 }
 
-// Komunikat zawsze pochodzi z naszej mapy kodów, więc treść od serwera nie trafia do interfejsu bez kontroli.
+// Komunikat zawsze pochodzi z naszej mapy kodów, więc treść od serwera nie trafia do interfejsu.
 export function errorFromResponse(
   status: number,
   body: unknown,
   retryAfter: string | null,
 ): AppError {
-  const envelope = errorEnvelopeSchema.safeParse(body);
-  const code = envelope.success ? envelope.data.error.code : '';
-
-  if (code === 'RATE_LIMITED') return new AppError('RATE_LIMITED', retryAfterMessage(retryAfter));
-  if (isErrorCode(code)) return new AppError(code);
-  if (status === 413) return new AppError('FILE_TOO_LARGE');
-  if (status === 429) return new AppError('RATE_LIMITED', retryAfterMessage(retryAfter));
-  if (status === 504) return new AppError('TIMEOUT');
-  if (status === 503) return new AppError('AI_UNAVAILABLE');
-  return new AppError('INTERNAL');
+  const code = errorCode(status, body);
+  const seconds = Number(retryAfter);
+  if (code === 'RATE_LIMITED' && Number.isInteger(seconds) && seconds > 0) {
+    return new AppError(
+      code,
+      `Zbyt wiele zapytań w krótkim czasie. Spróbuj ponownie za ${seconds} s.`,
+    );
+  }
+  return new AppError(code);
 }
 
-async function request(path: string, init: RequestInit, signal: AbortSignal): Promise<unknown> {
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-  let response: Response;
-  let body: unknown;
+// Ciało błędu z proxy bywa HTML-em, więc nieczytelne ciało traktujemy jak jego brak.
+async function send(
+  path: string,
+  init: RequestInit,
+  signal: AbortSignal,
+  timeoutMs: number,
+): Promise<{ response: Response; body: unknown }> {
+  const combined = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]);
   try {
-    response = await fetch(apiUrl(path), { ...init, signal: AbortSignal.any([signal, timeout]) });
-    body = await response.json().catch(() => null);
+    const response = await fetch(apiUrl(path), { ...init, signal: combined });
+    const body: unknown = await response.json().catch(() => null);
+    combined.throwIfAborted();
+    return { response, body };
   } catch {
     if (signal.aborted) throw new AppError('ABORTED');
-    if (timeout.aborted) throw new AppError('TIMEOUT');
-    throw new AppError('NETWORK');
+    throw new AppError(combined.aborted ? 'TIMEOUT' : 'NETWORK');
   }
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit,
+  schema: z.ZodType<T>,
+  signal: AbortSignal,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
+  const { response, body } = await send(path, init, signal, timeoutMs);
   if (!response.ok) {
     throw errorFromResponse(response.status, body, response.headers.get('Retry-After'));
   }
-  return body;
-}
-
-// Wywołanie na starcie budzi backend i pozwala nazwać dostawcę AI w informacji o prywatności.
-export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse | null> {
-  const timeout = AbortSignal.timeout(HEALTH_TIMEOUT_MS);
-  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-  try {
-    const response = await fetch(apiUrl('/api/health'), { method: 'GET', signal: combined });
-    if (!response.ok) return null;
-    const body: unknown = await response.json().catch(() => null);
-    const parsed = healthResponseSchema.safeParse(body);
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-export async function extractText(file: File, signal: AbortSignal): Promise<ExtractResponse> {
-  const form = new FormData();
-  form.append('file', file);
-  const body = await request('/api/extract', { method: 'POST', body: form }, signal);
-  const parsed = extractResponseSchema.safeParse(body);
+  const parsed = schema.safeParse(body);
   if (!parsed.success) throw new AppError('INVALID_RESULT');
   return parsed.data;
+}
+
+// Budzi backend przy starcie i podaje dostawcę AI do informacji o prywatności. Błąd = brak nazwy.
+export function fetchHealth(signal: AbortSignal): Promise<AiProvider | null> {
+  return request('/api/health', {}, healthResponseSchema, signal, HEALTH_TIMEOUT_MS).then(
+    (health) => health.provider,
+    () => null,
+  );
+}
+
+export function extractText(file: File, signal: AbortSignal): Promise<ExtractResponse> {
+  const body = new FormData();
+  body.append('file', file);
+  return request('/api/extract', { method: 'POST', body }, extractResponseSchema, signal);
 }
 
 // Wynik AI jest walidowany schematem przed wyświetleniem (F-04).
-export async function analyzeExtraction(
+export function analyzeExtraction(
   extractionId: string,
   signal: AbortSignal,
 ): Promise<AnalysisResult> {
-  const body = await request(
-    '/api/analyze',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ extractionId }),
-    },
-    signal,
-  );
-  const parsed = analysisResultSchema.safeParse(body);
-  if (!parsed.success) throw new AppError('INVALID_RESULT');
-  return parsed.data;
+  const init = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ extractionId }),
+  };
+  return request('/api/analyze', init, analysisResultSchema, signal);
 }

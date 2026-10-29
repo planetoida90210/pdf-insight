@@ -34,8 +34,8 @@ export function useAnalysis() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetchHealth(controller.signal).then((health) => {
-      if (health) setProviderLabel(PROVIDER_LABELS[health.provider]);
+    void fetchHealth(controller.signal).then((provider) => {
+      if (provider) setProviderLabel(PROVIDER_LABELS[provider]);
     });
     return () => controller.abort();
   }, []);

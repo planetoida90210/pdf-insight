@@ -5,9 +5,9 @@ import { z } from 'zod';
 const nonEmpty = z.string().trim().min(1);
 const isoDate = z.iso.date();
 
-export const DOCUMENT_TYPES = ['faktura', 'umowa', 'oferta', 'raport', 'inne'] as const;
+const DOCUMENT_TYPES = ['faktura', 'umowa', 'oferta', 'raport', 'inne'] as const;
 
-export const warningSchema = z.object({
+const warningSchema = z.object({
   code: z.string().regex(/^[A-Z_]+$/),
   page: z.int().min(1).nullable(),
   message: nonEmpty,
@@ -67,7 +67,12 @@ export const extractResponseSchema = z.object({
   expiresAt: z.iso.datetime({ offset: true }),
 });
 
+export const healthResponseSchema = z.object({
+  status: z.literal('ok'),
+  provider: z.enum(['gemini', 'anthropic']),
+});
+
 export type AnalysisResult = z.infer<typeof analysisResultSchema>;
 export type ExtractResponse = z.infer<typeof extractResponseSchema>;
-export type AnalysisWarning = z.infer<typeof warningSchema>;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+export type AiProvider = z.infer<typeof healthResponseSchema>['provider'];

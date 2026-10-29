@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import umowa from '../../schema/fixtures/valid/umowa.json';
 import { AppError } from '../lib/errors';
-import { analyzeExtraction, errorFromResponse, fetchHealth, healthResponseSchema } from './client';
+import { analyzeExtraction, errorFromResponse, fetchHealth } from './client';
 
 const envelope = (code: string) => ({ error: { code, message: 'Komunikat serwera' } });
+const signal = () => new AbortController().signal;
 
 describe('errorFromResponse', () => {
   it('mapuje kod z koperty błędu na polski komunikat', () => {
@@ -60,20 +61,19 @@ describe('fetchHealth', () => {
     vi.unstubAllGlobals();
   });
 
-  it('przyjmuje odpowiedź z dostawcą AI', async () => {
-    const body = { status: 'ok', provider: 'gemini' };
-    expect(healthResponseSchema.parse(body)).toEqual(body);
-
-    vi.stubGlobal('fetch', () => Promise.resolve(Response.json(body)));
-    await expect(fetchHealth()).resolves.toEqual(body);
+  it('zwraca dostawcę AI z odpowiedzi', async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(Response.json({ status: 'ok', provider: 'gemini' })),
+    );
+    await expect(fetchHealth(signal())).resolves.toBe('gemini');
   });
 
   it('zwraca null przy błędzie sieci lub niepoprawnym schemacie', async () => {
     vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed to fetch')));
-    await expect(fetchHealth()).resolves.toBeNull();
+    await expect(fetchHealth(signal())).resolves.toBeNull();
 
     vi.stubGlobal('fetch', () => Promise.resolve(Response.json({ status: 'ok' })));
-    await expect(fetchHealth()).resolves.toBeNull();
+    await expect(fetchHealth(signal())).resolves.toBeNull();
   });
 });
 
@@ -86,8 +86,6 @@ describe('analyzeExtraction', () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
-
-  const signal = () => new AbortController().signal;
 
   it('wysyła identyfikator i zwraca zwalidowany wynik', async () => {
     const fetchMock = vi.fn(() => Promise.resolve(Response.json(umowa)));
@@ -129,5 +127,18 @@ describe('analyzeExtraction', () => {
     );
     expect(error).toBeInstanceOf(AppError);
     expect(error).toMatchObject({ code: 'ABORTED' });
+  });
+
+  it('anulowanie w trakcie czytania odpowiedzi daje ABORTED, a nie INVALID_RESULT', async () => {
+    const controller = new AbortController();
+    const response = Response.json(umowa);
+    vi.spyOn(response, 'json').mockImplementation(() => {
+      controller.abort();
+      return Promise.reject(new DOMException('Aborted', 'AbortError'));
+    });
+    vi.stubGlobal('fetch', () => Promise.resolve(response));
+    await expect(analyzeExtraction('abc', controller.signal)).rejects.toMatchObject({
+      code: 'ABORTED',
+    });
   });
 });
