@@ -154,11 +154,21 @@ def test_rate_limit_per_client() -> None:
     assert int(response.headers["retry-after"]) > 0
 
 
-def test_time_budget_returns_504() -> None:
-    def slow(_: str) -> str:
+def test_time_budget_returns_504_and_stops_calling_the_llm() -> None:
+    def slow_and_invalid(_: str) -> str:
         time.sleep(0.3)
-        return llm_answer()
+        return llm_answer(keyPoints=["jeden"])
 
-    client, app = make_client(FakeLlm(slow), analyze_timeout_seconds=0.05)
+    llm = FakeLlm(slow_and_invalid)
+    client, app = make_client(llm, analyze_timeout_seconds=0.05)
     seed(app)
     assert analyze(client).status_code == 504
+    time.sleep(0.5)
+    assert len(llm.prompts) == 1
+
+
+def test_extraction_is_analysed_once() -> None:
+    client, app = make_client(FakeLlm(lambda _: llm_answer()))
+    seed(app)
+    assert analyze(client).status_code == 200
+    assert analyze(client).json()["error"]["code"] == "EXTRACTION_NOT_FOUND"

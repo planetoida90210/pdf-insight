@@ -122,12 +122,15 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
         if llm is None:
             raise ApiError(ErrorCode.AI_UNAVAILABLE)
         try:
-            return await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 asyncio.to_thread(analyze_extraction, llm, extraction, settings),
                 timeout=settings.analyze_timeout_seconds,
             )
         except TimeoutError as error:
             raise ApiError(ErrorCode.TIMEOUT) from error
+        # One analysis per upload; after a failure the client may retry with the same id.
+        cache.delete(body.extraction_id)
+        return result
 
     return app
 

@@ -40,8 +40,10 @@ def analyze_extraction(
     llm: OpenRouter, extraction: Extraction, settings: Settings
 ) -> AnalysisResult:
     started = time.perf_counter()
+    # The route stops waiting here; the worker thread must stop calling the LLM as well.
+    deadline = time.monotonic() + settings.analyze_timeout_seconds
     chunks = split_into_chunks(extraction.pages, settings.chunk_chars)
-    analysis, removed = ground_analysis(_analyze_chunks(llm, chunks), extraction.text)
+    analysis, removed = ground_analysis(_analyze_chunks(llm, chunks, deadline), extraction.text)
     warnings = _warnings(extraction, analysis, removed, len(chunks))
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     logger.info(
@@ -64,22 +66,24 @@ def analyze_extraction(
     )
 
 
-def _analyze_chunks(llm: OpenRouter, chunks: list[str]) -> LlmAnalysis:
+def _analyze_chunks(llm: OpenRouter, chunks: list[str], deadline: float) -> LlmAnalysis:
     """One chunk: one analysis. More: analyse each, merge them, then summarise the summaries."""
     if len(chunks) == 1:
-        return _ask(llm, ANALYZE_TASK, chunks[0])
+        return _ask(llm, ANALYZE_TASK, chunks[0], deadline)
     with ThreadPoolExecutor(CHUNK_CONCURRENCY) as pool:
-        parts = list(pool.map(lambda chunk: _ask(llm, ANALYZE_TASK, chunk), chunks))
-    overview = _ask(llm, REDUCE_TASK, parts_digest(parts))
+        parts = list(pool.map(lambda chunk: _ask(llm, ANALYZE_TASK, chunk, deadline), chunks))
+    overview = _ask(llm, REDUCE_TASK, parts_digest(parts), deadline)
     return merge_analyses(parts).model_copy(
         update={"summary": overview.summary, "key_points": overview.key_points}
     )
 
 
-def _ask(llm: OpenRouter, task: str, document: str) -> LlmAnalysis:
+def _ask(llm: OpenRouter, task: str, document: str, deadline: float) -> LlmAnalysis:
     prompt = document_prompt(task, document)
     errors: list[str] = []
     for _ in range(ATTEMPTS):
+        if time.monotonic() > deadline:
+            raise ApiError(ErrorCode.TIMEOUT)
         raw = llm.generate(
             system=SYSTEM_PROMPT, prompt=prompt + retry_note(errors), json_schema=LLM_JSON_SCHEMA
         )

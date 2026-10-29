@@ -32,6 +32,9 @@ class TtlCache[V]:
             return None
         return value
 
+    def delete(self, key: str) -> None:
+        self._items.pop(key, None)
+
     def _evict_expired(self) -> None:
         now = self.clock()
         for key in [k for k, (expires, _) in self._items.items() if expires <= now]:
