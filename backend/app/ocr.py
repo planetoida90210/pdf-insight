@@ -16,8 +16,9 @@ from app.prompts import VISION_PROMPT, VISION_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
-# 300 DPI: PDF user space is 72 units per inch.
-OCR_SCALE = 300 / 72
+# 200 DPI (PDF user space is 72 units per inch): on the test scan it reads the same words with the
+# same confidence as 300 DPI in about 60% of the time.
+OCR_SCALE = 200 / 72
 # About A4 at 300 DPI. Larger pages render at a lower scale, so a huge page box cannot
 # allocate gigabytes for one bitmap.
 MAX_RENDER_PIXELS = 9_000_000

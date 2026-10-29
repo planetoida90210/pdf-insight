@@ -29,7 +29,8 @@ was issued or signed (YYYY-MM-DD), else null.
 (zł is PLN), context: what the amount is for.
 - dates: the important calendar dates as YYYY-MM-DD, each with its context.
 - Copy names, numbers and dates exactly as written; do not correct inconsistencies.
-- JSON keys are English; string values stay in the document's language.
+- JSON keys are English; string values stay in the document's language. Write the summary and \
+keyPoints only in that language, even where a part of the document uses another one.
 """
 
 ANALYZE_TASK = "Analyse this document."

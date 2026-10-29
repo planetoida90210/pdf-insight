@@ -12,12 +12,16 @@ from app.schema import LlmAnalysis
 SUMMARY_SENTENCES = (3, 5)
 KEY_POINTS = (3, 7)
 
-# Dots inside these abbreviations do not end a sentence unless a new sentence starts after them.
-ABBREVIATION_RE = re.compile(
-    r"(?i:\bsp\.\s*z\s*o\.\s*o\.|\bs\.\s*a\.|\bm\.\s*in\.|\b(?:r|nr|ul|al|pl|św|dr|mgr|prof|tel|"
-    r"godz|str|poz|pkt|art|ust|tzn|tzw|np|itd|itp|tj|ds|wg|ok|tys|mln|mld|zob|por|lit|dz)\.)"
+# A name or a number always follows these abbreviations, so their dots never end a sentence.
+PREFIX_ABBREVIATION_RE = re.compile(
+    r"(?i:\bm\.\s*in\.|\b(?:nr|ul|al|pl|św|dr|mgr|prof|tel|godz|str|poz|pkt|art|ust|tzn|tzw|np|"
+    r"tj|ds|wg|ok|zob|por|lit|dz)\.)"
 )
-SENTENCE_START_RE = re.compile(r"\s+[\"„(A-ZĄĆĘŁŃÓŚŹŻ]|\s*$")
+# These may close a sentence: their last dot ends one only when a capital letter or the end follows.
+SUFFIX_ABBREVIATION_RE = re.compile(
+    r"(?i:\bsp\.\s*z\s*o\.\s*o\.|\bs\.\s*a\.|\b(?:r|itd|itp|tys|mln|mld)\.)"
+)
+SENTENCE_START_RE = re.compile(r"\s+[A-ZĄĆĘŁŃÓŚŹŻ]|\s*$")
 # A single capital letter with a dot is an initial ("A. Kowalczyk"), never a sentence end.
 INITIAL_RE = re.compile(r"\b([A-ZĄĆĘŁŃÓŚŹŻ])\.")
 SENTENCE_END_RE = re.compile(r"[.!?…]+(?:\s+|$)")
@@ -52,8 +56,10 @@ def rule_errors(analysis: LlmAnalysis) -> list[str]:
 
 
 def count_sentences(text: str) -> int:
-    protected = INITIAL_RE.sub(r"\1", ABBREVIATION_RE.sub(_keep_final_dot_at_sentence_end, text))
-    return sum(1 for part in SENTENCE_END_RE.split(protected) if part.strip())
+    text = PREFIX_ABBREVIATION_RE.sub(lambda match: match.group(0).replace(".", ""), text)
+    text = SUFFIX_ABBREVIATION_RE.sub(_keep_final_dot_at_sentence_end, text)
+    text = INITIAL_RE.sub(r"\1", text)
+    return sum(1 for part in SENTENCE_END_RE.split(text) if part.strip())
 
 
 def dedupe(items: Iterable[str]) -> list[str]:
