@@ -5,7 +5,7 @@ from typing import Any
 import httpx2
 
 from app.extraction import Extraction
-from app.llm import OpenRouter
+from app.llm import BASE_URL, OpenRouter
 from app.schema import AnalysisWarning, PageInfo
 
 
@@ -24,24 +24,31 @@ def llm_answer(**overrides: Any) -> str:
     return json.dumps(answer | overrides, ensure_ascii=False)
 
 
+def completion(content: str | None) -> dict[str, Any]:
+    """An OpenRouter chat completion body with one answer."""
+    return {
+        "id": "gen-test",
+        "provider": "Anthropic",
+        "choices": [
+            {"finish_reason": "stop", "message": {"role": "assistant", "content": content}}
+        ],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+    }
+
+
 class FakeLlm(OpenRouter):
-    """Answers every call with `respond(prompt)` instead of the network and records the prompts."""
+    """The real client over a mock transport: every request is answered with `respond(prompt)`."""
 
     def __init__(self, respond: Callable[[str], str]) -> None:
-        super().__init__(httpx2.Client(), "test/model")
+        transport = httpx2.MockTransport(self._reply)
+        super().__init__(httpx2.Client(base_url=BASE_URL, transport=transport), "test/model")
         self.respond = respond
         self.prompts: list[str] = []
 
-    def generate(
-        self,
-        *,
-        system: str,
-        prompt: str,
-        image_png: bytes | None = None,
-        json_schema: dict[str, Any] | None = None,
-    ) -> str:
+    def _reply(self, request: httpx2.Request) -> httpx2.Response:
+        prompt = json.loads(request.content)["messages"][1]["content"][0]["text"]
         self.prompts.append(prompt)
-        return self.respond(prompt)
+        return httpx2.Response(200, json=completion(self.respond(prompt)))
 
 
 def extraction(

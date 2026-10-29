@@ -72,7 +72,9 @@ class OpenRouter:
         return data
 
 
-def create_llm(settings: Settings) -> OpenRouter | None:
+def create_llm(
+    settings: Settings, transport: httpx2.BaseTransport | None = None
+) -> OpenRouter | None:
     """None without an API key: extraction still works, analysis answers AI_UNAVAILABLE."""
     key = settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else ""
     if not key:
@@ -82,6 +84,7 @@ def create_llm(settings: Settings) -> OpenRouter | None:
         base_url=BASE_URL,
         headers={"Authorization": f"Bearer {key}"},
         timeout=settings.llm_timeout_seconds,
+        transport=transport,
     )
     return OpenRouter(client, settings.llm_model)
 
