@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import umowa from '../../schema/fixtures/valid/umowa.json';
 import { analysisResultSchema } from './schema';
-import { badgesForPage } from './pageBadges';
+import { badgesForPage } from './pages';
 
 const result = analysisResultSchema.parse(umowa);
 

@@ -23,13 +23,6 @@ const CODE_BY_STATUS: Partial<Record<number, ErrorCode>> = {
 
 const errorEnvelopeSchema = z.object({ error: z.object({ code: z.string() }) });
 
-export const PROVIDER_LABELS: Record<AiProvider, string> = {
-  gemini: 'Google Gemini',
-  anthropic: 'Anthropic Claude',
-};
-
-export const FALLBACK_PROVIDER_LABEL = 'zewnętrzne API AI';
-
 function apiUrl(path: string): string {
   return `${import.meta.env.VITE_API_URL.replace(/\/+$/, '')}${path}`;
 }

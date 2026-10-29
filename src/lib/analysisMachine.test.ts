@@ -147,7 +147,7 @@ describe('runPipeline', () => {
 
 describe('statusMessage', () => {
   it('opisuje fazę po polsku', () => {
-    expect(statusMessage(IDLE)).toMatch(/Gotowy/);
+    expect(statusMessage(IDLE)).toBe('Wybierz plik PDF.');
     expect(statusMessage({ ...running, step: 1 })).toBe('Trwa: Odczyt tekstu');
     expect(
       statusMessage({

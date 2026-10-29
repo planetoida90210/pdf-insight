@@ -1,135 +1,81 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { FALLBACK_PROVIDER_LABEL, fetchHealth, PROVIDER_LABELS } from '../api/client';
+import { useEffect, useRef, useState } from 'react';
+import { fetchHealth } from '../api/client';
 import { useAnalysis } from '../hooks/useAnalysis';
-import {
-  addToHistory,
-  clearHistory,
-  readHistory,
-  removeFromHistory,
-  type HistoryEntry,
-} from '../lib/history';
-import { statusMessage, type AnalysisState } from '../lib/analysisMachine';
-import type { AnalysisResult } from '../lib/schema';
-import { EmptyState } from './EmptyState';
-import { ErrorPanel } from './ErrorPanel';
-import { Footer } from './Footer';
-import { Header } from './Header';
-import { HistoryPanel } from './HistoryPanel';
-import { ProgressPanel } from './ProgressPanel';
-import { ResultsView } from './ResultsView';
-
-type MainView = 'empty' | 'progress' | 'error' | 'done' | 'history';
-
-function mainViewOf(
-  historyView: { result: AnalysisResult } | null,
-  phase: AnalysisState['phase'],
-): MainView {
-  if (historyView) return 'history';
-  if (phase === 'running') return 'progress';
-  if (phase === 'error') return 'error';
-  if (phase === 'done') return 'done';
-  return 'empty';
-}
-
-const VIEW_HEADING: Record<MainView, string> = {
-  empty: 'empty-heading',
-  progress: 'progress-heading',
-  error: 'error-heading',
-  done: 'result-heading',
-  history: 'result-heading',
-};
-
-function focusViewHeading(view: MainView): void {
-  const el = document.getElementById(VIEW_HEADING[view]);
-  if (!(el instanceof HTMLElement)) return;
-  if (!el.hasAttribute('tabindex')) el.tabIndex = -1;
-  el.focus({ preventScroll: true });
-}
+import { statusMessage } from '../lib/analysisMachine';
+import { addToHistory, clearHistory, readHistory, removeFromHistory } from '../lib/history';
+import type { AiProvider, AnalysisResult } from '../lib/schema';
+import { ErrorPanel } from './organisms/ErrorPanel';
+import { HistoryPanel } from './organisms/HistoryPanel';
+import { ProgressPanel } from './organisms/ProgressPanel';
+import { ResultsView } from './organisms/ResultsView';
+import { UploadPanel } from './organisms/UploadPanel';
 
 export function App() {
-  const [history, setHistory] = useState<HistoryEntry[]>(() => readHistory());
-  const [historyView, setHistoryView] = useState<{
-    result: AnalysisResult;
-  } | null>(null);
-  const [providerLabel, setProviderLabel] = useState(FALLBACK_PROVIDER_LABEL);
+  const [history, setHistory] = useState(readHistory);
+  const [opened, setOpened] = useState<AnalysisResult | null>(null);
+  const [provider, setProvider] = useState<AiProvider | null>(null);
   const { state, start, retry, reset } = useAnalysis((result) => setHistory(addToHistory(result)));
-  const statusText = statusMessage(state);
-  const viewRef = useRef<MainView | null>(null);
+  const view = opened ? 'history' : state.phase;
+  const lastView = useRef(view);
+  const showUpload = !opened && state.phase === 'idle';
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetchHealth(controller.signal).then((provider) => {
-      if (provider) setProviderLabel(PROVIDER_LABELS[provider]);
-    });
+    void fetchHealth(controller.signal).then(setProvider);
     return () => controller.abort();
   }, []);
 
-  const view = mainViewOf(historyView, state.phase);
-
-  // Po zmianie widoku przenieś fokus na nagłówek panelu (klawiatura / czytniki).
+  // Po zmianie widoku fokus przechodzi na nagłówek nowego panelu, żeby klawiatura i czytnik ekranu nie zostały na usuniętym przycisku.
   useEffect(() => {
-    if (viewRef.current === null) {
-      viewRef.current = view;
-      return;
-    }
-    if (viewRef.current === view) return;
-    viewRef.current = view;
-    const id = window.requestAnimationFrame(() => focusViewHeading(view));
-    return () => window.cancelAnimationFrame(id);
+    if (lastView.current === view) return;
+    lastView.current = view;
+    document.querySelector<HTMLElement>('main h2')?.focus();
   }, [view]);
 
-  const onReset = () => {
-    setHistoryView(null);
+  const startOver = () => {
+    setOpened(null);
     reset();
   };
-
-  const onOpenHistory = (entry: HistoryEntry) => {
-    reset();
-    setHistoryView({ result: entry.result });
-  };
-
-  const showHistoryList = state.phase === 'idle' && historyView === null;
-
-  let main: ReactNode;
-  if (historyView) {
-    main = <ResultsView result={historyView.result} file={null} onReset={onReset} />;
-  } else if (state.phase === 'running') {
-    main = (
-      <ProgressPanel
-        step={state.step}
-        statusText={statusText}
-        startedAt={state.startedAt}
-        fileName={state.file.name}
-        onCancel={reset}
-      />
-    );
-  } else if (state.phase === 'error') {
-    main = <ErrorPanel error={state.error} onRetry={retry} onChooseAnother={onReset} />;
-  } else if (state.phase === 'done') {
-    main = <ResultsView result={state.result} file={state.file} onReset={onReset} />;
-  } else {
-    main = <EmptyState providerLabel={providerLabel} onFile={start} />;
-  }
 
   return (
-    <div className="app-shell">
-      <Header />
-      <div className="sr-only" aria-live="polite" aria-atomic="true">
-        {statusText}
-      </div>
-      {main}
-      {showHistoryList ? (
-        <HistoryPanel
-          entries={history}
-          onOpen={onOpenHistory}
-          onDelete={(id) => setHistory(removeFromHistory(id))}
-          onClear={() => {
-            clearHistory();
-            setHistory([]);
-          }}
-        />
-      ) : null}
-      <Footer />
-    </div>
+    <>
+      <header className="header">
+        <h1>
+          PDF <span>Insight</span>
+        </h1>
+      </header>
+      <main className="main">
+        {showUpload && <UploadPanel provider={provider} onFile={start} />}
+        {state.phase === 'running' && (
+          <ProgressPanel
+            fileName={state.file.name}
+            step={state.step}
+            startedAt={state.startedAt}
+            onCancel={startOver}
+          />
+        )}
+        {state.phase === 'error' && (
+          <ErrorPanel error={state.error} onRetry={retry} onReset={startOver} />
+        )}
+        {state.phase === 'done' && (
+          <ResultsView result={state.result} file={state.file} onReset={startOver} />
+        )}
+        {opened && <ResultsView result={opened} file={null} onReset={startOver} />}
+        {showUpload && (
+          <HistoryPanel
+            entries={history}
+            onOpen={(entry) => setOpened(entry.result)}
+            onDelete={(id) => setHistory(removeFromHistory(id))}
+            onClear={() => {
+              clearHistory();
+              setHistory([]);
+            }}
+          />
+        )}
+      </main>
+      <p className="sr-only" aria-live="polite">
+        {statusMessage(state)}
+      </p>
+    </>
   );
 }

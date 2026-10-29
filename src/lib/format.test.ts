@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { insightFileName } from './download';
-import { formatAmount, formatDate, formatFileSize, formatSeconds, languageName } from './format';
+import { formatAmount, formatDate, formatSeconds, languageName, providerLabel } from './format';
 
 // Intl używa twardych spacji jako separatora tysięcy, w testach porównujemy zwykłe spacje.
 const plain = (text: string) => text.replace(/\s/g, ' ');
@@ -17,10 +17,13 @@ describe('format', () => {
     expect(formatDate('2026-01-01')).toBe('1 stycznia 2026');
   });
 
-  it('formatuje rozmiar pliku i czas', () => {
-    expect(plain(formatFileSize(512 * 1024))).toBe('512 KB');
-    expect(plain(formatFileSize(2.5 * 1024 * 1024))).toBe('2,5 MB');
+  it('formatuje czas trwania', () => {
     expect(formatSeconds(8421)).toBe('8,4 s');
+  });
+
+  it('nazywa dostawcę AI, a bez odpowiedzi serwera podaje nazwę ogólną', () => {
+    expect(providerLabel('gemini')).toBe('API Google Gemini');
+    expect(providerLabel(null)).toBe('zewnętrznego API AI');
   });
 
   it('podaje nazwę języka po polsku', () => {

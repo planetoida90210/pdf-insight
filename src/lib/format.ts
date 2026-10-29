@@ -1,6 +1,8 @@
-import type { DocumentType } from './schema';
+import type { AiProvider, AnalysisResult, DocumentType } from './schema';
 
 const LOCALE = 'pl-PL';
+
+export const EMPTY_TEXT = 'Brak';
 
 export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   faktura: 'Faktura',
@@ -9,6 +11,20 @@ export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   raport: 'Raport',
   inne: 'Inny dokument',
 };
+
+const PROVIDER_LABELS: Record<AiProvider, string> = {
+  gemini: 'Google Gemini',
+  anthropic: 'Anthropic Claude',
+};
+
+// Forma pasuje do zdania „trafia do …” w informacji o prywatności.
+export function providerLabel(provider: AiProvider | null): string {
+  return provider ? `API ${PROVIDER_LABELS[provider]}` : 'zewnętrznego API AI';
+}
+
+export function documentTitle(result: AnalysisResult): string {
+  return result.document.title ?? result.document.fileName;
+}
 
 export function formatAmount(value: number, currency: string): string {
   return new Intl.NumberFormat(LOCALE, { style: 'currency', currency }).format(value);
@@ -25,13 +41,6 @@ export function formatDateTime(isoDateTime: string): string {
   return new Intl.DateTimeFormat(LOCALE, { dateStyle: 'medium', timeStyle: 'short' }).format(
     new Date(isoDateTime),
   );
-}
-
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024 * 1024) {
-    return `${new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 }).format(bytes / 1024)} KB`;
-  }
-  return `${new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 }).format(bytes / 1024 / 1024)} MB`;
 }
 
 export function formatSeconds(ms: number): string {

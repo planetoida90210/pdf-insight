@@ -1,5 +1,6 @@
 import { analyzeExtraction, extractText } from '../api/client';
 import { AppError } from './errors';
+import { documentTitle } from './format';
 import { validatePdf } from './pdf';
 import type { AnalysisResult, ExtractResponse } from './schema';
 
@@ -85,12 +86,12 @@ export async function runPipeline(
 export function statusMessage(state: AnalysisState): string {
   switch (state.phase) {
     case 'idle':
-      return 'Gotowy do analizy. Wybierz plik PDF.';
+      return 'Wybierz plik PDF.';
     case 'running':
       return `Trwa: ${PIPELINE_STEPS[state.step]}`;
     case 'error':
       return state.error.message;
     case 'done':
-      return `Analiza zakończona: ${state.result.document.title ?? state.result.document.fileName}`;
+      return `Analiza zakończona: ${documentTitle(state.result)}`;
   }
 }
