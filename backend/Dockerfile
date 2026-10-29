@@ -1,10 +1,22 @@
-# Official uv image: Python 3.12 slim with uv preinstalled.
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# Build stage: uv installs the locked dependencies into /app/.venv.
+FROM python:3.12-slim-bookworm AS build
+
+COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /usr/local/bin/uv
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_CACHE=1
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+# Runtime: the official Python image with the virtualenv only, no uv and no package cache.
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
     PYTHONPATH=/app \
     PORT=8000
 
@@ -18,9 +30,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
-
+COPY --from=build /app/.venv ./.venv
 COPY app ./app
 
 # Code and packages stay owned by root: the server process can read them, not change them.
