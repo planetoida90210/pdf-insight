@@ -27,6 +27,14 @@ function applyPatch(source: unknown, patch: Patch): unknown {
   return copy;
 }
 
+// Pydantic odrzuca puste napisy w tych polach, a wspólne fikstury tego nie sprawdzają.
+const emptyTextCases: Patch[] = [
+  { name: 'empty title', path: ['document', 'title'], value: ' ' },
+  { name: 'empty organization', path: ['entities', 'organizations'], value: [''] },
+  { name: 'empty person', path: ['entities', 'people'], value: [''] },
+  { name: 'empty keyword', path: ['keywords'], value: [''] },
+];
+
 describe('analysisResultSchema', () => {
   it('ma wspólne fikstury do sprawdzenia', () => {
     expect(Object.keys(validFixtures).length).toBeGreaterThan(0);
@@ -38,10 +46,9 @@ describe('analysisResultSchema', () => {
     expect(parsed.error).toBeUndefined();
   });
 
-  it.each((invalidCases as Patch[]).map((patch) => [patch.name, patch] as const))(
-    'odrzuca wynik: %s',
-    (_, patch) => {
-      expect(analysisResultSchema.safeParse(applyPatch(umowa, patch)).success).toBe(false);
-    },
-  );
+  it.each(
+    [...(invalidCases as Patch[]), ...emptyTextCases].map((patch) => [patch.name, patch] as const),
+  )('odrzuca wynik: %s', (_, patch) => {
+    expect(analysisResultSchema.safeParse(applyPatch(umowa, patch)).success).toBe(false);
+  });
 });
