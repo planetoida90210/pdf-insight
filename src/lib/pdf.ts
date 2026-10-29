@@ -56,6 +56,41 @@ export async function validatePdf(file: File): Promise<void> {
   await pdf.loadingTask.destroy();
 }
 
+export type PageContent = { text: string; paintsImage: boolean };
+
+// pdf.js operators that paint a raster image.
+const IMAGE_OPERATORS = [
+  'paintImageXObject',
+  'paintImageXObjectRepeat',
+  'paintInlineImageXObject',
+  'paintInlineImageXObjectGroup',
+  'paintImageMaskXObject',
+  'paintImageMaskXObjectRepeat',
+  'paintImageMaskXObjectGroup',
+] as const;
+
+export async function readPageContent(page: PDFPageProxy): Promise<PageContent> {
+  const { OPS } = await loadPdfjs();
+  const [content, operators] = await Promise.all([page.getTextContent(), page.getOperatorList()]);
+  const imageOperators = new Set<number>(IMAGE_OPERATORS.map((name) => OPS[name]));
+  return {
+    text: content.items.map((item) => ('str' in item ? item.str : '')).join(''),
+    paintsImage: operators.fnArray.some((fn) => imageOperators.has(fn)),
+  };
+}
+
+export async function renderPageImage(
+  page: PDFPageProxy,
+  scale: number,
+): Promise<HTMLCanvasElement> {
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+  await page.render({ canvas, viewport }).promise;
+  return canvas;
+}
+
 // Returns the RenderTask so the component can cancel the render on unmount.
 export function renderPage(
   page: PDFPageProxy,
