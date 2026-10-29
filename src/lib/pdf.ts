@@ -46,15 +46,13 @@ export async function openPdf(file: File): Promise<PDFDocumentProxy> {
 }
 
 // Pełna walidacja przed wysyłką: typ, rozmiar, sygnatura `%PDF-` i to, czy pdf.js potrafi plik otworzyć.
-export async function validatePdf(file: File): Promise<number> {
+export async function validatePdf(file: File): Promise<void> {
   const infoError = checkFileInfo(file);
   if (infoError) throw infoError;
   if (!(await hasPdfSignature(file))) throw new AppError('UNSUPPORTED_TYPE');
 
   const pdf = await openPdf(file);
-  const pages = pdf.numPages;
   await pdf.loadingTask.destroy();
-  return pages;
 }
 
 // Zwraca RenderTask, żeby komponent mógł przerwać rysowanie przy odmontowaniu.

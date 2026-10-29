@@ -88,7 +88,7 @@ describe('runPipeline', () => {
 
   beforeEach(() => {
     actions.length = 0;
-    vi.mocked(validatePdf).mockReset().mockResolvedValue(12);
+    vi.mocked(validatePdf).mockReset().mockResolvedValue();
     vi.mocked(extractText).mockReset().mockResolvedValue(extraction('e1'));
     vi.mocked(analyzeExtraction).mockReset().mockResolvedValue(result);
   });
@@ -129,7 +129,6 @@ describe('runPipeline', () => {
     const controller = new AbortController();
     vi.mocked(validatePdf).mockImplementation(async () => {
       controller.abort();
-      return 12;
     });
     vi.mocked(extractText).mockRejectedValue(new AppError('ABORTED'));
     await expect(
