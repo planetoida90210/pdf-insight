@@ -256,10 +256,15 @@ summary {
   font-variant-numeric: tabular-nums;
 }
 
+/* Pole bierze tyle miejsca, ile potrzebuje jego wartość, więc nazwa pliku nie łamie się w wąskiej kolumnie. */
 .key-values {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--field-min-width), 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
+}
+
+.key-values > div {
+  min-width: var(--field-min-width);
 }
 
 .steps {
