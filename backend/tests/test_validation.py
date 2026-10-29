@@ -64,3 +64,4 @@ def test_rule_errors_for_summary_and_key_points() -> None:
 def test_rejects_non_json_and_non_object_answers() -> None:
     assert parse_analysis("Oto analiza:")[1][0].startswith("response is not valid JSON")
     assert parse_analysis(json.dumps(["lista"]))[1] == ["response must be a JSON object"]
+    assert parse_analysis('{"amounts": [{"value": ' + "9" * 5000 + "}]}")[0] is None

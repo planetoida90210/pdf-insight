@@ -28,8 +28,9 @@ CURRENCIES = {"zł": "PLN", "zl": "PLN", "€": "EUR", "$": "USD", "£": "GBP"}
 def parse_analysis(raw: str) -> tuple[LlmAnalysis | None, list[str]]:
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError as error:
-        return None, [f"response is not valid JSON ({error.msg})"]
+    except ValueError as error:
+        # Also an integer longer than Python's 4300-digit limit, which is not a JSONDecodeError.
+        return None, [f"response is not valid JSON ({error})"]
     if not isinstance(data, dict):
         return None, ["response must be a JSON object"]
     try:
