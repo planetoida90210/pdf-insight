@@ -118,9 +118,35 @@ class AnalyzeRequest(ApiModel):
     extraction_id: Annotated[str, StringConstraints(min_length=1, max_length=64)]
 
 
+class LlmDocument(ApiModel):
+    """Semantic document fields filled by the model (fileName/pages come from the backend)."""
+
+    language: Annotated[str, Field(pattern=r"^[a-z]{2}$")]
+    type: DocumentType
+    title: NonEmptyStr | None
+    date: IsoDate | None
+
+
+class LlmAnalysis(ApiModel):
+    """Model-facing payload: no fileName/pages/meta/warnings assembly."""
+
+    document: LlmDocument
+    summary: NonEmptyStr
+    key_points: list[NonEmptyStr]
+    entities: Entities
+    amounts: list[Amount]
+    dates: list[DateEntry]
+    keywords: list[NonEmptyStr]
+    suspicious_instructions: list[NonEmptyStr] = Field(default_factory=list)
+
+
 def analysis_json_schema() -> dict[str, object]:
     schema = AnalysisResult.model_json_schema(by_alias=True)
     return {"$schema": "https://json-schema.org/draft/2020-12/schema", **schema}
+
+
+def llm_json_schema() -> dict[str, object]:
+    return LlmAnalysis.model_json_schema(by_alias=True)
 
 
 if __name__ == "__main__":

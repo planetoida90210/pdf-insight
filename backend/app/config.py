@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 6
     daily_analysis_limit: int = 300
     extraction_ttl_seconds: int = 900
+    llm_timeout_seconds: float = 60.0
 
     @property
     def origins(self) -> list[str]:
@@ -35,6 +36,15 @@ class Settings(BaseSettings):
     @property
     def max_file_bytes(self) -> int:
         return self.max_file_mb * 1024 * 1024
+
+    @property
+    def resolved_model(self) -> str:
+        if self.llm_model:
+            return self.llm_model
+        # Defaults verified 2026-10-29 against provider docs (see app/llm.py).
+        if self.llm_provider == "anthropic":
+            return "claude-haiku-5-5"
+        return "gemini-3.8-flash"
 
 
 @lru_cache
