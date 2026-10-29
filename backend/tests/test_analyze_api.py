@@ -1,4 +1,6 @@
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import cast
 
 import pytest
@@ -174,3 +176,38 @@ def test_extraction_is_analysed_once() -> None:
     seed(app)
     assert analyze(client).status_code == 200
     assert analyze(client).json()["error"]["code"] == "EXTRACTION_NOT_FOUND"
+
+
+def test_parallel_requests_for_one_id_start_one_analysis() -> None:
+    started, release = threading.Event(), threading.Event()
+
+    def held(_: str) -> str:
+        started.set()
+        release.wait(5)
+        return llm_answer()
+
+    llm = FakeLlm(held)
+    client, app = make_client(llm)
+    seed(app)
+    with ThreadPoolExecutor(1) as pool:
+        first = pool.submit(analyze, client)
+        assert started.wait(5)
+        second = analyze(client)
+        release.set()
+        assert first.result().status_code == 200
+    assert second.json()["error"]["code"] == "EXTRACTION_NOT_FOUND"
+    assert len(llm.prompts) == 1
+
+
+def test_failed_analysis_can_be_retried_with_the_same_id() -> None:
+    outcomes = iter([False, True])
+
+    def fails_once(_: str) -> str:
+        if not next(outcomes):
+            raise ApiError(ErrorCode.AI_UNAVAILABLE)
+        return llm_answer()
+
+    client, app = make_client(FakeLlm(fails_once))
+    seed(app)
+    assert analyze(client).status_code == 503
+    assert analyze(client).status_code == 200

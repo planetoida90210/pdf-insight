@@ -50,6 +50,7 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
     cache: TtlCache[Extraction] = TtlCache(ttl=settings.extraction_ttl_seconds)
     limiter = SlidingWindowLimiter(limit=settings.rate_limit_per_minute)
     extract_slots = asyncio.Semaphore(EXTRACT_CONCURRENCY)
+    analyzing: set[str] = set()
     app.state.cache = cache
 
     @app.exception_handler(ApiError)
@@ -132,11 +133,14 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
 
     @app.post("/api/analyze")
     async def analyze(body: AnalyzeRequest) -> AnalysisResult:
-        extraction = cache.get(body.extraction_id)
-        if extraction is None:
+        extraction_id = body.extraction_id
+        extraction = cache.get(extraction_id)
+        # An id under analysis is taken: a parallel request for it would pay for a second one.
+        if extraction is None or extraction_id in analyzing:
             raise ApiError(ErrorCode.EXTRACTION_NOT_FOUND)
         if llm is None:
             raise ApiError(ErrorCode.AI_UNAVAILABLE)
+        analyzing.add(extraction_id)
         try:
             result = await asyncio.wait_for(
                 asyncio.to_thread(analyze_extraction, llm, extraction, settings),
@@ -144,8 +148,10 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
             )
         except TimeoutError as error:
             raise ApiError(ErrorCode.TIMEOUT) from error
+        finally:
+            analyzing.discard(extraction_id)
         # One analysis per upload; after a failure the client may retry with the same id.
-        cache.delete(body.extraction_id)
+        cache.delete(extraction_id)
         return result
 
     return app
