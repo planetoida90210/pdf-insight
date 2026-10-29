@@ -54,8 +54,9 @@ def extract_pdf(
     """The visible text of every page and its warnings; ApiError when the file cannot be read."""
     try:
         result = _read_pages(data, file_name, settings, vision)
-    except PdfminerException as error:
-        # pdfium repairs some damaged files that pdfminer still cannot parse.
+    except (PdfminerException, pdfium.PdfiumError) as error:
+        # The two parsers disagree on damaged files: pdfium repairs some that pdfminer cannot
+        # parse, pdfminer finds pages that pdfium cannot load.
         raise ApiError(ErrorCode.INVALID_PDF) from error
     if not result.pages:
         raise ApiError(ErrorCode.NO_TEXT)

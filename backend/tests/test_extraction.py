@@ -66,6 +66,13 @@ def test_damaged_pdf_that_pdfium_opens_is_invalid() -> None:
     assert raised.value.code == ErrorCode.INVALID_PDF
 
 
+def test_page_that_pdfium_cannot_load_is_invalid() -> None:
+    pages = text_pdf("Pierwsza strona umowy ramowej.", "Druga strona umowy ramowej.")
+    with pytest.raises(ApiError) as raised:
+        extract(pages.replace(b"/Count 2", b"/Count 1", 1))
+    assert raised.value.code == ErrorCode.INVALID_PDF
+
+
 @needs_tesseract
 def test_ocr_reads_a_page_without_text_layer() -> None:
     result = extract(image_pages_pdf("Aneks: 13 100 PLN netto, 135 użytkowników"))
