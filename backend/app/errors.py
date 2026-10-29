@@ -74,14 +74,14 @@ WARNINGS: dict[WarningCode, str] = {
     ),
     WarningCode.OCR_LOW_CONFIDENCE: "Strona {page}: niska pewność OCR ({confidence:.0f}%).",
     WarningCode.PAGES_SKIPPED: (
-        "Strona {page} wymaga OCR, ale przekroczono limit {limit} stron OCR. Pominięto ją."
+        "Strona {page} wymaga OCR, ale osiągnięto limit stron OCR ({limit}). Pominięto ją."
     ),
     WarningCode.INJECTION_SUSPECTED: (
         'Dokument zawiera fragment wyglądający na polecenie dla AI: "{snippet}". '
         "Potraktowano go jako dane, nie jako polecenie."
     ),
     WarningCode.UNGROUNDED_REMOVED: (
-        "Usunięto {count} wartości (kwoty lub daty), których nie znaleziono w tekście dokumentu."
+        "Usunięto kwoty lub daty, których nie znaleziono w tekście dokumentu (liczba: {count})."
     ),
     WarningCode.CHUNKED: (
         "Dokument był długi. Przeanalizowano go w {chunks} częściach i scalono wyniki."
