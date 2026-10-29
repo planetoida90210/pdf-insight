@@ -21,19 +21,19 @@ page N starts.
 
 Rules:
 - Use only facts stated in the document. Missing information is null or [], never a guess.
-- document.language: ISO 639-1 code of the document's main language.
+- document.language: decide it first, as the ISO 639-1 code of the language most of the \
+document's text is written in.
 - document.type: faktura, umowa, oferta, raport or inne, for the document as a whole.
 - document.title: the document's own title, else null. document.date: the date the document \
 was issued or signed (YYYY-MM-DD), else null.
-- summarySentences: the summary as 3-5 sentences, one complete sentence per item, in the \
-document's language. keyPoints: 3-7 short points in that language.
+- summarySentences: the summary as 3-5 sentences, one complete sentence per item. keyPoints: \
+3-7 short points. Write both only in the language of document.language, even where a part of \
+the document uses another one.
 - amounts: value as a plain number ("184 500,00 zł" is 184500), currency as an ISO 4217 code \
 (zł is PLN), context: what the amount is for.
 - dates: the important calendar dates as YYYY-MM-DD, each with its context.
 - Copy names, numbers and dates exactly as written; do not correct inconsistencies.
-- JSON keys are English; string values stay in the document's language. Write \
-summarySentences and keyPoints only in that language, even where a part of the document uses \
-another one.
+- JSON keys are English; string values stay in the document's language.
 """
 
 ANALYZE_TASK = "Analyse this document."

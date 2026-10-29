@@ -103,7 +103,7 @@ def _ask(llm: OpenRouter, task: str, document: str, deadline: float) -> LlmAnaly
         raw = llm.generate(
             system=SYSTEM_PROMPT, prompt=prompt + retry_note(errors), json_schema=LLM_JSON_SCHEMA
         )
-        analysis, errors = parse_analysis(raw)
+        analysis, errors = parse_analysis(raw, document)
         if analysis is not None:
             return analysis
     logger.warning("invalid AI response after retry: %s", errors)
