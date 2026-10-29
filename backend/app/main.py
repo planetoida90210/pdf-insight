@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -24,6 +25,11 @@ from app.schema import AnalysisResult, AnalysisWarning, AnalyzeRequest, ExtractR
 from app.upload import open_pdf, read_pdf_upload
 
 logger = logging.getLogger("pdf_insight")
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s %(name)s %(message)s",
+    )
 
 # Multipart framing around the file; anything bigger than file limit + this is rejected
 # before the body is parsed.
@@ -148,11 +154,28 @@ def create_app(
         pdf.close()
 
         vision_fn = resolve_vision()
+        started = datetime.now(UTC)
+        deadline = time.monotonic() + settings.extract_timeout_seconds
 
         async with extract_lock:
-            result: ExtractionResult = await asyncio.to_thread(
-                extract_pdf, data, settings, vision=vision_fn
-            )
+            try:
+                result: ExtractionResult = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        extract_pdf,
+                        data,
+                        settings,
+                        vision=vision_fn,
+                        deadline=deadline,
+                    ),
+                    timeout=settings.extract_timeout_seconds,
+                )
+            except TimeoutError as error:
+                logger.info(
+                    "extract timeout file_bytes=%s budget_s=%s",
+                    len(data),
+                    settings.extract_timeout_seconds,
+                )
+                raise ApiError(ErrorCode.TIMEOUT) from error
 
         extraction_id = str(uuid.uuid4())
         expires_at = datetime.now(UTC) + timedelta(seconds=settings.extraction_ttl_seconds)
@@ -169,12 +192,16 @@ def create_app(
                 expires_at=expires_at,
             ),
         )
+        elapsed_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
+        warning_codes = sorted({w.code for w in result.warnings})
         logger.info(
-            "extract id=%s pages=%s chars=%s file_bytes=%s",
+            "extract id=%s pages=%s chars=%s file_bytes=%s ms=%s warnings=%s",
             extraction_id,
             result.pages,
             result.chars,
             len(data),
+            elapsed_ms,
+            warning_codes,
         )
         return ExtractResponse(
             extraction_id=extraction_id,
@@ -200,17 +227,31 @@ def create_app(
 
         transport = resolve_transport()
         model = settings.resolved_model
-        return await asyncio.to_thread(
-            analyze_extraction,
-            transport=transport,
-            provider=settings.llm_provider,
-            model=model,
-            file_name=cached.file_name,
-            pages=cached.pages,
-            text=cached.text,
-            page_info=cached.page_info,
-            extract_warnings=cached.warnings,
-        )
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    analyze_extraction,
+                    transport=transport,
+                    provider=settings.llm_provider,
+                    model=model,
+                    file_name=cached.file_name,
+                    pages=cached.pages,
+                    text=cached.text,
+                    page_info=cached.page_info,
+                    extract_warnings=cached.warnings,
+                    chunk_chars=settings.chunk_chars,
+                    chunk_concurrency=settings.chunk_concurrency,
+                ),
+                timeout=settings.analyze_timeout_seconds,
+            )
+        except TimeoutError as error:
+            logger.info(
+                "analyze timeout chars=%s pages=%s budget_s=%s",
+                cached.chars,
+                cached.pages,
+                settings.analyze_timeout_seconds,
+            )
+            raise ApiError(ErrorCode.TIMEOUT) from error
 
     return app
 
