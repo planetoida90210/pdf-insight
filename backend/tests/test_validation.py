@@ -18,6 +18,11 @@ from tests.fakes import llm_answer
         ),
         ("Umowę podpisała A. Kowalczyk w dniu 12.03.2026 r. Obowiązuje dwa lata.", 2),
         ("Termin upływa 31 marca 2028 r.", 1),
+        (
+            "Umowę zawarły Nordwave Logistics sp. z o.o. (Zamawiający) oraz Kwadrat Software "
+            "S.A. (Wykonawca). Biuro mieści się przy ul. Długiej 5 w Gdańsku.",
+            2,
+        ),
         ("", 0),
     ],
 )
