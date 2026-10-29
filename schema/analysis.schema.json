@@ -1,0 +1,286 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Amount": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "currency": {
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
+          "type": "string"
+        },
+        "context": {
+          "minLength": 1,
+          "title": "Context",
+          "type": "string"
+        }
+      },
+      "required": ["value", "currency", "context"],
+      "title": "Amount",
+      "type": "object"
+    },
+    "AnalysisWarning": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[A-Z_]+$",
+          "title": "Code",
+          "type": "string"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Page"
+        },
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": ["code", "page", "message"],
+      "title": "AnalysisWarning",
+      "type": "object"
+    },
+    "DateEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "title": "Date",
+          "type": "string"
+        },
+        "context": {
+          "minLength": 1,
+          "title": "Context",
+          "type": "string"
+        }
+      },
+      "required": ["date", "context"],
+      "title": "DateEntry",
+      "type": "object"
+    },
+    "DocumentInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "fileName": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Filename",
+          "type": "string"
+        },
+        "pages": {
+          "minimum": 1,
+          "title": "Pages",
+          "type": "integer"
+        },
+        "language": {
+          "pattern": "^[a-z]{2}$",
+          "title": "Language",
+          "type": "string"
+        },
+        "type": {
+          "enum": ["faktura", "umowa", "oferta", "raport", "inne"],
+          "title": "Type",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Title"
+        },
+        "date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Date"
+        }
+      },
+      "required": ["fileName", "pages", "language", "type", "title", "date"],
+      "title": "DocumentInfo",
+      "type": "object"
+    },
+    "Entities": {
+      "additionalProperties": false,
+      "properties": {
+        "organizations": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Organizations",
+          "type": "array"
+        },
+        "people": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "People",
+          "type": "array"
+        }
+      },
+      "required": ["organizations", "people"],
+      "title": "Entities",
+      "type": "object"
+    },
+    "Meta": {
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "1.0",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "analyzedAt": {
+          "format": "date-time",
+          "title": "Analyzedat",
+          "type": "string"
+        },
+        "provider": {
+          "minLength": 1,
+          "title": "Provider",
+          "type": "string"
+        },
+        "model": {
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "ocrPages": {
+          "items": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": "Ocrpages",
+          "type": "array"
+        },
+        "hiddenTextPages": {
+          "items": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": "Hiddentextpages",
+          "type": "array"
+        },
+        "chunks": {
+          "minimum": 1,
+          "title": "Chunks",
+          "type": "integer"
+        },
+        "processingMs": {
+          "minimum": 0,
+          "title": "Processingms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "analyzedAt",
+        "provider",
+        "model",
+        "ocrPages",
+        "hiddenTextPages",
+        "chunks",
+        "processingMs"
+      ],
+      "title": "Meta",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "document": {
+      "$ref": "#/$defs/DocumentInfo"
+    },
+    "summary": {
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "keyPoints": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 7,
+      "minItems": 3,
+      "title": "Keypoints",
+      "type": "array"
+    },
+    "entities": {
+      "$ref": "#/$defs/Entities"
+    },
+    "amounts": {
+      "items": {
+        "$ref": "#/$defs/Amount"
+      },
+      "title": "Amounts",
+      "type": "array"
+    },
+    "dates": {
+      "items": {
+        "$ref": "#/$defs/DateEntry"
+      },
+      "title": "Dates",
+      "type": "array"
+    },
+    "keywords": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Keywords",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "$ref": "#/$defs/AnalysisWarning"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "meta": {
+      "$ref": "#/$defs/Meta"
+    }
+  },
+  "required": [
+    "document",
+    "summary",
+    "keyPoints",
+    "entities",
+    "amounts",
+    "dates",
+    "keywords",
+    "warnings",
+    "meta"
+  ],
+  "title": "AnalysisResult",
+  "type": "object"
+}
