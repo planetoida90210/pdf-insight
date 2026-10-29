@@ -133,6 +133,9 @@ def _read_pages(
             pages.append(read)
         if vision is not None:
             _transcribe_unsure(pdf, pages, vision, settings, deadline)
+            # A transcript can be longer than the OCR text it replaced.
+            if sum(len(page.text) for page in pages) > settings.max_text_chars:
+                raise ApiError(ErrorCode.TEXT_TOO_LONG)
     return Extraction(
         file_name=file_name,
         pages=[f"{PAGE_MARKER.format(page=p.info.page)}\n{p.text}" for p in pages if p.text],
@@ -178,6 +181,9 @@ def _transcribe_unsure(
 
     def read(page: _PageText) -> str:
         with render_lock:
+            # Pages left when the time is up keep their OCR text without being rendered.
+            if time.monotonic() >= deadline:
+                return ""
             image = render_page(pdf[page.info.page - 1], OCR_SCALE)
         timeout = min(settings.llm_timeout_seconds, deadline - time.monotonic())
         return transcribe(vision, image, timeout)
