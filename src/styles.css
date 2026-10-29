@@ -242,8 +242,16 @@ summary {
   color: var(--color-muted);
 }
 
+/* Słowa dzieli tylko ostatnia kolumna (kontekst); inaczej wąska tabela tnie kody walut na litery. */
+.table :is(th, td):not(:last-child) {
+  overflow-wrap: normal;
+}
+
+.table :is(th, td):last-child {
+  padding-right: 0;
+}
+
 .table td:first-child {
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
