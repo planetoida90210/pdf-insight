@@ -1,6 +1,7 @@
 import { analyzeExtraction, extractText } from '../api/client';
 import { AppError } from './errors';
 import { documentTitle } from './format';
+import { readScannedPages } from './ocr';
 import { validatePdf } from './pdf';
 import type { AnalysisResult, ExtractResponse } from './schema';
 
@@ -11,15 +12,19 @@ export type RunStep = 0 | 1 | 2;
 
 export type Run = { file: File; step: RunStep; extraction: ExtractResponse | null };
 
+// Pages read by OCR in the browser so far, out of the pages that need it.
+export type OcrProgress = { done: number; total: number };
+
 export type AnalysisState =
   | { phase: 'idle' }
-  | ({ phase: 'running'; startedAt: number } & Run)
+  | ({ phase: 'running'; startedAt: number; ocr: OcrProgress | null } & Run)
   | ({ phase: 'error'; error: AppError } & Run)
   | { phase: 'done'; file: File; result: AnalysisResult };
 
 export type AnalysisAction =
   | { type: 'start'; run: Run; startedAt: number }
   | { type: 'extracting' }
+  | { type: 'ocr'; progress: OcrProgress }
   | { type: 'analyzing'; extraction: ExtractResponse }
   | { type: 'done'; result: AnalysisResult }
   | { type: 'fail'; error: AppError }
@@ -30,14 +35,16 @@ export const IDLE: AnalysisState = { phase: 'idle' };
 export function analysisReducer(state: AnalysisState, action: AnalysisAction): AnalysisState {
   if (action.type === 'reset') return IDLE;
   if (action.type === 'start') {
-    return { phase: 'running', startedAt: action.startedAt, ...action.run };
+    return { phase: 'running', startedAt: action.startedAt, ocr: null, ...action.run };
   }
   if (state.phase !== 'running') return state;
   switch (action.type) {
     case 'extracting':
-      return { ...state, step: 1, extraction: null };
+      return { ...state, step: 1, extraction: null, ocr: null };
+    case 'ocr':
+      return { ...state, ocr: action.progress };
     case 'analyzing':
-      return { ...state, step: 2, extraction: action.extraction };
+      return { ...state, step: 2, extraction: action.extraction, ocr: null };
     case 'done':
       return { phase: 'done', file: state.file, result: action.result };
     case 'fail': {
@@ -57,9 +64,16 @@ export async function runPipeline(
   const update = (action: AnalysisAction) => {
     if (!signal.aborted) dispatch(action);
   };
-  const extract = () => {
+  const extract = async () => {
     update({ type: 'extracting' });
-    return extractText(run.file, signal);
+    const onProgress = (done: number, total: number) =>
+      update({ type: 'ocr', progress: { done, total } });
+    const ocr = await readScannedPages(run.file, signal, onProgress).catch((error: unknown) => {
+      if (signal.aborted) throw error;
+      // Without the browser's text the server reads those pages itself, only slower.
+      return [];
+    });
+    return extractText(run.file, ocr, signal);
   };
   const analyze = (extraction: ExtractResponse) => {
     update({ type: 'analyzing', extraction });

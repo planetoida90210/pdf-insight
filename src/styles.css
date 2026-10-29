@@ -290,6 +290,10 @@ summary {
   color: var(--color-accent);
 }
 
+.steps__detail {
+  margin-left: var(--space-2);
+}
+
 .upload {
   display: grid;
   gap: var(--space-3);

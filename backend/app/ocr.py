@@ -1,10 +1,8 @@
-"""Page rendering and OCR: Tesseract first, a vision model when Tesseract is unsure."""
+"""Page rendering and reading text from a page image: Tesseract, or a vision model."""
 
 import io
 import logging
 import math
-from dataclasses import dataclass
-from typing import Literal
 
 import pypdfium2 as pdfium
 import pytesseract
@@ -24,13 +22,6 @@ OCR_SCALE = 200 / 72
 MAX_RENDER_PIXELS = 9_000_000
 
 
-@dataclass(frozen=True, slots=True)
-class OcrResult:
-    text: str
-    confidence: float | None
-    method: Literal["ocr", "vision"]
-
-
 def render_scale(page: pdfium.PdfPage, scale: float) -> float:
     """`scale`, lowered when the bitmap would exceed MAX_RENDER_PIXELS."""
     width, height = page.get_size()
@@ -40,23 +31,6 @@ def render_scale(page: pdfium.PdfPage, scale: float) -> float:
 def render_page(page: pdfium.PdfPage, scale: float) -> Image.Image:
     image: Image.Image = page.render(scale=render_scale(page, scale)).to_pil()
     return image.convert("RGB")
-
-
-def ocr_page(
-    page: pdfium.PdfPage,
-    *,
-    lang: str,
-    min_confidence: float,
-    vision: OpenRouter | None,
-) -> OcrResult:
-    image = render_page(page, OCR_SCALE)
-    text, confidence = tesseract(image, lang)
-    if vision is None or confidence >= min_confidence:
-        return OcrResult(text, confidence, "ocr")
-    vision_text = _transcribe(vision, image)
-    if vision_text:
-        return OcrResult(vision_text, None, "vision")
-    return OcrResult(text, confidence, "ocr")
 
 
 def tesseract(image: Image.Image, lang: str) -> tuple[str, float]:
@@ -75,13 +49,18 @@ def tesseract(image: Image.Image, lang: str) -> tuple[str, float]:
     return text, sum(confidences) / len(confidences) if confidences else 0.0
 
 
-def _transcribe(vision: OpenRouter, image: Image.Image) -> str:
-    """Vision is a best-effort fallback: a provider error keeps the Tesseract text."""
+def transcribe(vision: OpenRouter, image: Image.Image, timeout: float) -> str:
+    """Vision is a best-effort fallback: a provider error or no time left keeps the OCR text."""
+    if timeout <= 0:
+        return ""
     png = io.BytesIO()
     image.save(png, format="PNG")
     try:
         text = vision.generate(
-            system=VISION_SYSTEM_PROMPT, prompt=VISION_PROMPT, image_png=png.getvalue()
+            system=VISION_SYSTEM_PROMPT,
+            prompt=VISION_PROMPT,
+            image_png=png.getvalue(),
+            timeout=timeout,
         )
         return text.strip()
     except ApiError as error:

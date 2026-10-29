@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import umowa from '../../schema/fixtures/valid/umowa.json';
 import { AppError } from '../lib/errors';
-import { analyzeExtraction, errorFromResponse } from './client';
+import { analyzeExtraction, errorFromResponse, extractText } from './client';
 
 const envelope = (code: string) => ({ error: { code, message: 'Komunikat serwera' } });
 const signal = () => new AbortController().signal;
@@ -12,6 +12,7 @@ describe('errorFromResponse', () => {
     expect(error.code).toBe('UNSUPPORTED_TYPE');
     expect(error.message).toBe('To nie jest plik PDF.');
     expect(error.retryable).toBe(false);
+    expect(errorFromResponse(422, envelope('TEXT_TOO_LONG'), null).retryable).toBe(false);
   });
 
   it('maps INVALID_REQUEST and NOT_FOUND to Polish messages', () => {
@@ -114,5 +115,32 @@ describe('analyzeExtraction', () => {
     await expect(analyzeExtraction('abc', controller.signal)).rejects.toMatchObject({
       code: 'ABORTED',
     });
+  });
+});
+
+describe('extractText', () => {
+  beforeEach(() => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example.test');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it('sends the browser OCR as a JSON file part, and no part without it', async () => {
+    const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(new Response(null)));
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['%PDF-1.7'], 'skan.pdf', { type: 'application/pdf' });
+    const ocr = [{ page: 1, text: 'Aneks', confidence: 90 }];
+
+    await extractText(file, ocr, signal()).catch(() => null);
+    await extractText(file, [], signal()).catch(() => null);
+
+    const [withOcr, without] = fetchMock.mock.calls.map(([, init]) => init?.body as FormData);
+    const part = withOcr?.get('ocr');
+    expect(part).toBeInstanceOf(Blob);
+    expect(JSON.parse(await (part as Blob).text())).toEqual(ocr);
+    expect(without?.has('ocr')).toBe(false);
   });
 });

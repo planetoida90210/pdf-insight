@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAmount, formatDate, formatSeconds, languageName } from './format';
+import { formatAmount, formatDate, formatOcrProgress, formatSeconds, languageName } from './format';
 
 // Intl separates thousands with non-breaking spaces; the tests compare plain spaces.
 const plain = (text: string) => text.replace(/\s/g, ' ');
@@ -18,6 +18,10 @@ describe('format', () => {
 
   it('formats a duration', () => {
     expect(formatSeconds(8421)).toBe('8,4 s');
+  });
+
+  it('formats the OCR progress', () => {
+    expect(formatOcrProgress({ done: 3, total: 10 })).toBe('OCR 3/10');
   });
 
   it('names the language in Polish', () => {

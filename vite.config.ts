@@ -1,5 +1,36 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import { OCR_ASSETS_DIR } from './src/lib/config.ts';
+
+// tesseract.js loads its worker, WASM core and language data at run time. The app serves them
+// itself, so no request goes to a CDN: the LSTM-only cores (tesseract.js picks one by the
+// browser's SIMD support) and the integer LSTM models it loads with them.
+const TESSERACT_FILES = [
+  'tesseract.js/dist/worker.min.js',
+  'tesseract.js-core/tesseract-core-lstm.wasm.js',
+  'tesseract.js-core/tesseract-core-simd-lstm.wasm.js',
+  'tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js',
+  '@tesseract.js-data/pol/4.0.0_best_int/pol.traineddata.gz',
+  '@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz',
+];
+
+function tesseractAssets(): Plugin {
+  return {
+    name: 'tesseract-assets',
+    apply: 'build',
+    async generateBundle() {
+      for (const file of TESSERACT_FILES) {
+        const resolved = await this.resolve(file);
+        if (!resolved) throw new Error(`Cannot find ${file}`);
+        this.emitFile({
+          type: 'asset',
+          fileName: `${OCR_ASSETS_DIR}/${file.split('/').pop()}`,
+          source: await this.fs.readFile(resolved.id),
+        });
+      }
+    },
+  };
+}
 
 // GitHub Pages cannot set response headers, so the CSP goes into a <meta> tag. Build only:
 // the Vite dev server injects inline scripts and styles that this policy would block.
@@ -31,5 +62,5 @@ function contentSecurityPolicy(apiUrl: string | undefined): Plugin {
 // GitHub Pages serves the app from https://<user>.github.io/pdf-insight/
 export default defineConfig(({ mode }) => ({
   base: '/pdf-insight/',
-  plugins: [react(), contentSecurityPolicy(loadEnv(mode, '.').VITE_API_URL)],
+  plugins: [react(), contentSecurityPolicy(loadEnv(mode, '.').VITE_API_URL), tesseractAssets()],
 }));

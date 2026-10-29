@@ -23,20 +23,25 @@ class Settings(BaseSettings):
 
     max_file_mb: int = 10
     max_pages: int = 200
-    max_ocr_pages: int = 30
     ocr_lang: str = "pol+eng"
     ocr_min_chars: int = 25
     ocr_min_confidence: float = 60
     vision_fallback: bool = True
-    max_text_chars: int = 200_000
-    chunk_chars: int = 40_000
+    max_text_chars: int = 2_000_000
+    # 150,000 characters are about 50,000 tokens: far inside Haiku 5.5's 1M context and under the
+    # 100,000-token prompt size past which its input costs 5x more. A dense 200-page document
+    # (~820,000 characters) is 6 chunks, so with CHUNK_CONCURRENCY 8 its analysis takes one round
+    # of parallel chunk calls plus the call that writes the summary.
+    chunk_chars: int = 150_000
 
     rate_limit_per_minute: int = 6
     daily_llm_call_limit: int = 1000
     extraction_ttl_seconds: int = 900
-    extract_timeout_seconds: float = 90
+    # DigitalOcean's edge ends every request at 100 s: both steps answer before it, with TIMEOUT
+    # at the latest.
+    extract_timeout_seconds: float = 85
     extract_memory_mb: int = 320
-    analyze_timeout_seconds: float = 120
+    analyze_timeout_seconds: float = 85
 
     @property
     def origins(self) -> list[str]:
@@ -45,6 +50,11 @@ class Settings(BaseSettings):
     @property
     def max_file_bytes(self) -> int:
         return self.max_file_mb * 1024 * 1024
+
+    @property
+    def max_ocr_bytes(self) -> int:
+        """The browser's OCR part: at most max_text_chars characters, 4 bytes each in UTF-8."""
+        return self.max_text_chars * 4
 
 
 @lru_cache

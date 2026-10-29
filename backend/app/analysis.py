@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 
 # The brief allows one retry after an invalid AI response.
 ATTEMPTS = 2
-CHUNK_CONCURRENCY = 3
+# Sized together with Settings.chunk_chars.
+CHUNK_CONCURRENCY = 8
 
 
 def analyze_extraction(

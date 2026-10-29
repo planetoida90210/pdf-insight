@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AppError, isErrorCode, retryAfterMessage, type ErrorCode } from '../lib/errors';
+import type { OcrPage } from '../lib/ocr';
 import {
   analysisResultSchema,
   extractResponseSchema,
@@ -7,9 +8,9 @@ import {
   type ExtractResponse,
 } from '../lib/schema';
 
-// Longer than the server's own limits (analysis 120 s, PDF parsing 90 s): a slow request ends with
-// the server's TIMEOUT answer, and a result the server finished at its limit still arrives.
-const REQUEST_TIMEOUT_MS = 150_000;
+// Longer than the server's own limits (85 s for each step): a slow request ends with the server's
+// TIMEOUT answer, and a result the server finished at its limit still arrives.
+const REQUEST_TIMEOUT_MS = 90_000;
 
 // The HTTP status decides only when the body has no error envelope with a known code.
 const CODE_BY_STATUS: Partial<Record<number, ErrorCode>> = {
@@ -78,9 +79,18 @@ async function request<T>(
   return parsed.data;
 }
 
-export function extractText(file: File, signal: AbortSignal): Promise<ExtractResponse> {
+// `ocr` holds the pages the browser has read. It goes as a file because the server limits plain
+// form fields to 1 MB.
+export function extractText(
+  file: File,
+  ocr: OcrPage[],
+  signal: AbortSignal,
+): Promise<ExtractResponse> {
   const body = new FormData();
   body.append('file', file);
+  if (ocr.length > 0) {
+    body.append('ocr', new Blob([JSON.stringify(ocr)], { type: 'application/json' }));
+  }
   return request('/api/extract', { method: 'POST', body }, extractResponseSchema, signal);
 }
 

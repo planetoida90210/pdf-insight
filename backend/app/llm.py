@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 
 PROVIDER = "openrouter"
 BASE_URL = "https://openrouter.ai/api/v1"
-# Reasoning tokens count towards this ceiling as well.
-MAX_TOKENS = 8192
+# Room for the longest answer: the amounts and dates of a 150,000-character chunk, or a dense
+# page transcribed. Reasoning tokens count towards this ceiling as well.
+MAX_TOKENS = 16_000
 TIMEOUT_STATUSES = {408, 504}
 
 
@@ -32,10 +33,12 @@ class OpenRouter:
         prompt: str,
         image_png: bytes | None = None,
         json_schema: dict[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> str:
         """Returns the answer text; provider failures raise ApiError (AI_UNAVAILABLE or TIMEOUT).
 
         Every call takes one unit of the daily budget; DAILY_LIMIT once it is used up.
+        `timeout` (seconds) replaces LLM_TIMEOUT_SECONDS for this call.
         """
         if not self._budget.hit():
             logger.error("daily LLM call limit reached")
@@ -60,11 +63,12 @@ class OpenRouter:
                 "type": "json_schema",
                 "json_schema": {"name": "analysis", "strict": True, "schema": json_schema},
             }
-        return _answer_text(self._post(body))
+        return _answer_text(self._post(body, timeout))
 
-    def _post(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _post(self, body: dict[str, Any], timeout: float | None) -> dict[str, Any]:
+        limit = httpx2.USE_CLIENT_DEFAULT if timeout is None else timeout
         try:
-            response = self._client.post("/chat/completions", json=body)
+            response = self._client.post("/chat/completions", json=body, timeout=limit)
             data = response.json()
         except httpx2.TimeoutException as error:
             raise _provider_error(408, type(error).__name__) from error

@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from app.analysis import analyze_extraction
+from app.analysis import CHUNK_CONCURRENCY, analyze_extraction
 from app.chunking import merge_analyses, split_into_chunks
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
@@ -131,7 +131,8 @@ def test_a_failing_chunk_drops_the_chunks_not_started() -> None:
     llm = FakeLlm(respond)
     text = "x" * 100
     with pytest.raises(ApiError):
-        analyze_extraction(llm, long_extraction(*[text] * 8), Settings(chunk_chars=150))
+        analyze_extraction(llm, long_extraction(*[text] * 20), Settings(chunk_chars=150))
     release.set()
-    # Pages 1-3 start together; page 2's worker may pick up page 4 before the rest is dropped.
-    assert len(llm.prompts) <= 4
+    # The first CHUNK_CONCURRENCY pages start together; page 2's worker may pick up one more
+    # before the rest is dropped.
+    assert len(llm.prompts) <= CHUNK_CONCURRENCY + 1
