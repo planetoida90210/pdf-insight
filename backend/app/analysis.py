@@ -122,8 +122,23 @@ def _warnings(
     warnings += [
         warning(WarningCode.INJECTION_SUSPECTED, snippet=quote)
         for quote in analysis.suspicious_instructions
+        if not _quoted(quote, extraction.warnings)
     ]
     return warnings
+
+
+def _quoted(quote: str, warnings: list[AnalysisWarning]) -> bool:
+    """Whether a warning already quotes text that overlaps the quote: one contains the other,
+    ignoring case and spacing."""
+    folded = _fold(quote)
+    return any(
+        snippet in folded or folded in snippet
+        for snippet in (_fold(w.snippet) for w in warnings if w.snippet)
+    )
+
+
+def _fold(text: str) -> str:
+    return " ".join(text.casefold().split())
 
 
 def _meta(extraction: Extraction, model: str, chunks: int, elapsed_ms: int) -> Meta:

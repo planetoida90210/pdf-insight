@@ -15,6 +15,7 @@ from pydantic import (
     TypeAdapter,
 )
 from pydantic.alias_generators import to_camel
+from pydantic.json_schema import SkipJsonSchema
 
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schema" / "analysis.schema.json"
 
@@ -75,6 +76,8 @@ class AnalysisWarning(ApiModel):
     code: Annotated[str, Field(pattern=r"^[A-Z_]+$")]
     page: PageNumber | None
     message: NonEmptyStr
+    # The document text the message quotes, to tell whether a later warning repeats it; never sent.
+    snippet: SkipJsonSchema[str | None] = Field(default=None, exclude=True)
 
 
 class Meta(ApiModel):
