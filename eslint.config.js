@@ -7,16 +7,21 @@ export default defineConfig([
   globalIgnores(['dist', '.wrangler']),
   js.configs.recommended,
   tseslint.configs.strict,
+  reactHooks.configs.flat.recommended,
   {
-    plugins: { 'react-hooks': reactHooks },
     rules: {
-      'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'error',
       'no-console': 'error',
+      'no-restricted-properties': [
+        'error',
+        { object: 'window', property: 'console' },
+        { object: 'globalThis', property: 'console' },
+      ],
       'no-restricted-syntax': [
         'error',
         {
-          selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
+          selector:
+            "JSXAttribute[name.name='dangerouslySetInnerHTML'], Property[key.name='dangerouslySetInnerHTML']",
           message: 'dangerouslySetInnerHTML jest zabronione (brief, sekcja 05).',
         },
       ],
