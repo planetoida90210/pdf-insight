@@ -23,11 +23,15 @@ class Settings(BaseSettings):
     ocr_min_confidence: float = 60
     vision_fallback: bool = True
     chunk_chars: int = 40_000
+    chunk_concurrency: int = 3
 
     rate_limit_per_minute: int = 6
     daily_analysis_limit: int = 300
     extraction_ttl_seconds: int = 900
     llm_timeout_seconds: float = 60.0
+    # Wall-clock budgets for the whole extract / analyze request (→ TIMEOUT 504).
+    extract_timeout_seconds: float = 90.0
+    analyze_timeout_seconds: float = 120.0
 
     @property
     def origins(self) -> list[str]:
