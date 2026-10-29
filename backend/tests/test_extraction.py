@@ -125,8 +125,9 @@ def test_huge_page_renders_within_the_pixel_cap() -> None:
     assert result.warnings == []
 
 
-def test_text_past_the_limit_is_dropped_with_a_warning() -> None:
-    result = extract(text_pdf("a" * 40, "b" * 40, "c" * 40), max_text_chars=70)
-    assert result.pages == ["[Strona 1]\n" + "a" * 40, "[Strona 2]\n" + "b" * 19]
-    assert [info.chars for info in result.page_info] == [40, 40, 0]
-    assert [(w.code, w.page) for w in result.warnings] == [("TEXT_LIMIT", 2)]
+def test_text_past_the_limit_is_refused() -> None:
+    pages = text_pdf("a" * 40, "b" * 40, "c" * 40)
+    assert len(extract(pages, max_text_chars=120).pages) == 3
+    with pytest.raises(ApiError) as raised:
+        extract(pages, max_text_chars=119)
+    assert raised.value.code == ErrorCode.TEXT_TOO_LONG

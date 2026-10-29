@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     ocr_min_chars: int = 25
     ocr_min_confidence: float = 60
     vision_fallback: bool = True
-    max_text_chars: int = 200_000
+    max_text_chars: int = 2_000_000
     chunk_chars: int = 40_000
 
     rate_limit_per_minute: int = 6

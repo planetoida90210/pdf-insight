@@ -83,24 +83,18 @@ def _read_pages(
     data: bytes, file_name: str, settings: Settings, vision: OpenRouter | None
 ) -> Extraction:
     result = Extraction(file_name=file_name, pages=[], page_info=[], warnings=[])
+    chars = 0
     with open_pdf(data, settings.max_pages) as pdf, pdfplumber.open(BytesIO(data)) as plumber:
         for number, page in enumerate(plumber.pages, start=1):
-            room = settings.max_text_chars - sum(len(text) for text in result.pages)
-            if room <= 0:
-                result.page_info.append(
-                    PageInfo(page=number, method="text", chars=0, confidence=None)
-                )
-                continue
             info, text, warnings = _read_page(pdf, page, number, settings, vision)
             # pdfplumber keeps every parsed page otherwise; long documents would outgrow
             # the worker's memory cap.
             page.close()
+            chars += len(text)
+            if chars > settings.max_text_chars:
+                raise ApiError(ErrorCode.TEXT_TOO_LONG)
             result.page_info.append(info)
             result.warnings.extend(warnings)
-            if len(text) >= room:
-                text = text[:room]
-                limit = settings.max_text_chars
-                result.warnings.append(warning(WarningCode.TEXT_LIMIT, number, limit=limit))
             if text:
                 result.pages.append(f"{PAGE_MARKER.format(page=number)}\n{text}")
     return result

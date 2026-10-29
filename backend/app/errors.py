@@ -13,6 +13,7 @@ class ErrorCode(StrEnum):
     INVALID_PDF = "INVALID_PDF"
     ENCRYPTED_PDF = "ENCRYPTED_PDF"
     TOO_MANY_PAGES = "TOO_MANY_PAGES"
+    TEXT_TOO_LONG = "TEXT_TOO_LONG"
     NO_TEXT = "NO_TEXT"
     EXTRACTION_NOT_FOUND = "EXTRACTION_NOT_FOUND"
     RATE_LIMITED = "RATE_LIMITED"
@@ -30,7 +31,6 @@ class WarningCode(StrEnum):
     OCR_USED = "OCR_USED"
     VISION_USED = "VISION_USED"
     OCR_LOW_CONFIDENCE = "OCR_LOW_CONFIDENCE"
-    TEXT_LIMIT = "TEXT_LIMIT"
     INJECTION_SUSPECTED = "INJECTION_SUSPECTED"
     UNGROUNDED_REMOVED = "UNGROUNDED_REMOVED"
     CHUNKED = "CHUNKED"
@@ -48,6 +48,7 @@ ERRORS: dict[ErrorCode, tuple[int, str]] = {
         422,
         "Dokument ma za dużo stron. Maksymalna liczba stron to {max_pages}.",
     ),
+    ErrorCode.TEXT_TOO_LONG: (422, "Dokument ma za dużo tekstu do analizy."),
     ErrorCode.NO_TEXT: (422, "Nie udało się odczytać tekstu z dokumentu, również przez OCR."),
     ErrorCode.EXTRACTION_NOT_FOUND: (
         404,
@@ -75,9 +76,6 @@ WARNINGS: dict[WarningCode, str] = {
         "Strona {page} nie ma czytelnej warstwy tekstowej. Tekst odczytał model AI z obrazu."
     ),
     WarningCode.OCR_LOW_CONFIDENCE: "Strona {page}: niska pewność OCR ({confidence:.0f}%).",
-    WarningCode.TEXT_LIMIT: (
-        "Pominięto tekst od strony {page}: dokument przekracza limit {limit} znaków."
-    ),
     WarningCode.INJECTION_SUSPECTED: (
         'Dokument zawiera fragment wyglądający na polecenie dla AI: "{snippet}". '
         "Potraktowano go jako dane, nie jako polecenie."

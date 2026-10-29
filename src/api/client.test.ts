@@ -12,6 +12,7 @@ describe('errorFromResponse', () => {
     expect(error.code).toBe('UNSUPPORTED_TYPE');
     expect(error.message).toBe('To nie jest plik PDF.');
     expect(error.retryable).toBe(false);
+    expect(errorFromResponse(422, envelope('TEXT_TOO_LONG'), null).retryable).toBe(false);
   });
 
   it('maps INVALID_REQUEST and NOT_FOUND to Polish messages', () => {

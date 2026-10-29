@@ -7,6 +7,7 @@ const MESSAGES = {
   INVALID_PDF: 'Plik PDF jest uszkodzony.',
   ENCRYPTED_PDF: 'PDF jest chroniony hasłem.',
   TOO_MANY_PAGES: 'Dokument ma za dużo stron.',
+  TEXT_TOO_LONG: 'Dokument ma za dużo tekstu.',
   NO_TEXT: 'Nie udało się odczytać tekstu.',
   EXTRACTION_NOT_FOUND: 'Odczytany tekst wygasł na serwerze.',
   RATE_LIMITED: 'Za dużo zapytań, odczekaj chwilę.',
@@ -31,6 +32,7 @@ const FINAL_CODES: ReadonlySet<ErrorCode> = new Set([
   'INVALID_PDF',
   'ENCRYPTED_PDF',
   'TOO_MANY_PAGES',
+  'TEXT_TOO_LONG',
   'NO_TEXT',
   'DAILY_LIMIT',
 ]);
