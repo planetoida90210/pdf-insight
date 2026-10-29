@@ -23,8 +23,8 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY app ./app
 
-RUN useradd --create-home --uid 10001 appuser \
-    && chown -R appuser:appuser /app
+# Code and packages stay owned by root: the server process can read them, not change them.
+RUN useradd --create-home --uid 10001 appuser
 USER appuser
 
 EXPOSE 8000
