@@ -128,6 +128,16 @@ def test_vision_request_sends_the_image_after_the_text() -> None:
             ErrorCode.AI_UNAVAILABLE,
             id="non-json-body",
         ),
+        pytest.param(
+            httpx2.Response(200, json=[completion("{}")]),
+            ErrorCode.AI_UNAVAILABLE,
+            id="json-array-body",
+        ),
+        pytest.param(
+            httpx2.Response(502, json={"error": "Bad gateway"}),
+            ErrorCode.AI_UNAVAILABLE,
+            id="error-as-text",
+        ),
         pytest.param(httpx2.ReadTimeout("timed out"), ErrorCode.TIMEOUT, id="read-timeout"),
         pytest.param(httpx2.ConnectError("refused"), ErrorCode.AI_UNAVAILABLE, id="connect-error"),
     ],
@@ -143,8 +153,14 @@ def test_provider_failures_map_to_api_errors(
 
 @pytest.mark.parametrize(
     "body",
-    [completion(None), completion(""), completion("not json"), {"id": "gen-test", "choices": []}],
-    ids=["null", "empty", "not-json", "no-choices"],
+    [
+        completion(None),
+        completion(""),
+        completion("not json"),
+        {"id": "gen-test", "choices": []},
+        {"choices": [{"message": {"content": [{"type": "text", "text": "{}"}]}}]},
+    ],
+    ids=["null", "empty", "not-json", "no-choices", "content-parts"],
 )
 def test_unusable_answer_is_retried_once_then_rejected(body: dict[str, Any]) -> None:
     llm, requests = openrouter(*(httpx2.Response(200, json=body) for _ in range(2)))

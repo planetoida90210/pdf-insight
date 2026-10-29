@@ -65,12 +65,16 @@ class OpenRouter:
     def _post(self, body: dict[str, Any]) -> dict[str, Any]:
         try:
             response = self._client.post("/chat/completions", json=body)
-            data: dict[str, Any] = response.json()
+            data = response.json()
         except httpx2.TimeoutException as error:
             raise _provider_error(408, type(error).__name__) from error
         except (httpx2.HTTPError, ValueError) as error:
             raise _provider_error(502, type(error).__name__) from error
+        if not isinstance(data, dict):
+            raise _provider_error(response.status_code, "reply is not a JSON object")
         failure = data.get("error") or {}
+        if not isinstance(failure, dict):
+            failure = {"message": failure}
         # An upstream failure can also arrive in the body of an HTTP 200 response.
         if failure or not response.is_success:
             error_type = (failure.get("metadata") or {}).get("error_type")
@@ -110,7 +114,8 @@ def _answer_text(data: dict[str, Any]) -> str:
         usage.get("prompt_tokens"),
         usage.get("completion_tokens"),
     )
-    return (choice.get("message") or {}).get("content") or ""
+    content = (choice.get("message") or {}).get("content")
+    return content if isinstance(content, str) else ""
 
 
 def _provider_error(status: int, detail: str) -> ApiError:
