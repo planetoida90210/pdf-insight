@@ -124,6 +124,8 @@ def _read_pages(
     with open_pdf(data, settings.max_pages) as pdf:
         if any(number > len(pdf) for number in browser_ocr):
             raise ApiError(ErrorCode.INVALID_REQUEST)
+        if _text_layer_chars(pdf) > settings.max_text_chars:
+            raise ApiError(ErrorCode.TEXT_TOO_LONG)
         for number in range(1, len(pdf) + 1):
             # Closed after reading: long documents would outgrow the worker's memory cap.
             with closing(pdf[number - 1]) as page:
@@ -143,6 +145,16 @@ def _read_pages(
         page_info=[p.info for p in pages],
         warnings=[w for p in pages for w in _page_warnings(p, settings.ocr_min_confidence)],
     )
+
+
+def _text_layer_chars(pdf: pdfium.PdfDocument) -> int:
+    """Every glyph of every text layer, hidden ones included: more than the visible text, and
+    cheap to count, so a document with too much text is refused before any page is rendered."""
+    total = 0
+    for index in range(len(pdf)):
+        with closing(pdf[index]) as page, closing(page.get_textpage()) as text:
+            total += text.count_chars()
+    return total
 
 
 def _read_page(

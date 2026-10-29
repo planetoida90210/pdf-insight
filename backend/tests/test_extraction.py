@@ -149,6 +149,15 @@ def test_glyphs_without_unicode_send_the_page_to_ocr(monkeypatch: pytest.MonkeyP
     assert result.pages == ["=== 1 ===\nFaktura 1200 PLN"]
 
 
+def test_too_much_text_is_refused_before_any_page_is_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(extraction, "_read_page", None)
+    with pytest.raises(ApiError) as raised:
+        extract(text_pdf("a" * 40, "b" * 40), max_text_chars=60)
+    assert raised.value.code == ErrorCode.TEXT_TOO_LONG
+
+
 @needs_tesseract
 def test_ocr_reads_a_page_without_text_layer() -> None:
     result = extract(image_pages_pdf("Aneks: 13 100 PLN netto, 135 użytkowników"))
