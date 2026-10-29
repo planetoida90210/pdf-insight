@@ -1,7 +1,9 @@
+"""API contract: the analysis result, the extract response and the model-facing subset."""
+
 import json
 from datetime import date
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AfterValidator,
@@ -118,9 +120,8 @@ class AnalyzeRequest(ApiModel):
     extraction_id: Annotated[str, StringConstraints(min_length=1, max_length=64)]
 
 
+# The model fills only these fields; fileName, pages, warnings and meta come from the backend.
 class LlmDocument(ApiModel):
-    """Semantic document fields filled by the model (fileName/pages come from the backend)."""
-
     language: Annotated[str, Field(pattern=r"^[a-z]{2}$")]
     type: DocumentType
     title: NonEmptyStr | None
@@ -128,8 +129,6 @@ class LlmDocument(ApiModel):
 
 
 class LlmAnalysis(ApiModel):
-    """Model-facing payload: no fileName/pages/meta/warnings assembly."""
-
     document: LlmDocument
     summary: NonEmptyStr
     key_points: list[NonEmptyStr]
@@ -137,7 +136,7 @@ class LlmAnalysis(ApiModel):
     amounts: list[Amount]
     dates: list[DateEntry]
     keywords: list[NonEmptyStr]
-    suspicious_instructions: list[NonEmptyStr] = Field(default_factory=list)
+    suspicious_instructions: list[NonEmptyStr]
 
 
 def analysis_json_schema() -> dict[str, object]:
@@ -145,8 +144,19 @@ def analysis_json_schema() -> dict[str, object]:
     return {"$schema": "https://json-schema.org/draft/2020-12/schema", **schema}
 
 
-def llm_json_schema() -> dict[str, object]:
-    return LlmAnalysis.model_json_schema(by_alias=True)
+def _without_keywords(node: Any, keywords: set[str]) -> Any:
+    if isinstance(node, dict):
+        return {k: _without_keywords(v, keywords) for k, v in node.items() if k not in keywords}
+    if isinstance(node, list):
+        return [_without_keywords(item, keywords) for item in node]
+    return node
+
+
+# Strict structured output rejects string-length and pattern constraints; they are still
+# enforced locally when LlmAnalysis validates the answer.
+LLM_JSON_SCHEMA: dict[str, Any] = _without_keywords(
+    LlmAnalysis.model_json_schema(), {"minLength", "pattern"}
+)
 
 
 if __name__ == "__main__":

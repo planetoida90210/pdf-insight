@@ -1,238 +1,106 @@
-"""LLM providers: Gemini (default) and Anthropic with structured output."""
-
-from __future__ import annotations
+"""OpenRouter chat completions: one call for analysis (JSON schema) and page OCR (image)."""
 
 import base64
-import io
-import json
 import logging
-from collections.abc import Callable
-from typing import Any, NoReturn, Protocol
+from typing import Any
 
-from PIL import Image
+import httpx2
 
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
-from app.prompts import VISION_PROMPT
-from app.schema import LlmAnalysis, llm_json_schema
 
 logger = logging.getLogger("pdf_insight")
 
-DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
-DEFAULT_ANTHROPIC_MODEL = "claude-haiku-5-5"
+PROVIDER = "openrouter"
+BASE_URL = "https://openrouter.ai/api/v1"
+# Reasoning tokens count towards this ceiling as well.
+MAX_TOKENS = 8192
+TIMEOUT_STATUSES = {408, 504}
 
 
-class LlmTransport(Protocol):
-    def complete(self, *, system: str, user: str) -> dict[str, Any]: ...
+class OpenRouter:
+    def __init__(self, client: httpx2.Client, model: str) -> None:
+        self._client = client
+        self.model = model
 
-    def transcribe(self, image: Image.Image) -> str: ...
+    def generate(
+        self,
+        *,
+        system: str,
+        prompt: str,
+        image_png: bytes | None = None,
+        json_schema: dict[str, Any] | None = None,
+    ) -> str:
+        """Returns the answer text; provider failures raise ApiError (AI_UNAVAILABLE or TIMEOUT)."""
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        if image_png is not None:
+            url = "data:image/png;base64," + base64.b64encode(image_png).decode("ascii")
+            content.append({"type": "image_url", "image_url": {"url": url}})
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": content},
+            ],
+            "max_tokens": MAX_TOKENS,
+            "reasoning": {"effort": "low", "exclude": True},
+            # Route only to provider endpoints that support every parameter sent here.
+            "provider": {"require_parameters": True},
+        }
+        if json_schema is not None:
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "analysis", "strict": True, "schema": json_schema},
+            }
+        return _answer_text(self._post(body))
+
+    def _post(self, body: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = self._client.post("/chat/completions", json=body)
+            data: dict[str, Any] = response.json()
+        except httpx2.TimeoutException as error:
+            raise _provider_error(408, type(error).__name__) from error
+        except (httpx2.HTTPError, ValueError) as error:
+            raise _provider_error(502, type(error).__name__) from error
+        # An upstream failure can also arrive in the body of an HTTP 200 response.
+        if failure := data.get("error"):
+            error_type = (failure.get("metadata") or {}).get("error_type")
+            message = str(failure.get("message"))[:200]
+            raise _provider_error(
+                failure.get("code") or response.status_code, f"{error_type}: {message}"
+            )
+        return data
 
 
-def resolve_model(settings: Settings) -> str:
-    return settings.resolved_model
-
-
-def create_transport(settings: Settings) -> LlmTransport:
-    model = resolve_model(settings)
-    if settings.llm_provider == "anthropic":
-        key = settings.anthropic_api_key
-        if key is None or not key.get_secret_value():
-            raise ApiError(ErrorCode.AI_UNAVAILABLE, "Brak klucza ANTHROPIC_API_KEY.")
-        return AnthropicTransport(
-            api_key=key.get_secret_value(),
-            model=model,
-            timeout=settings.llm_timeout_seconds,
-        )
-    key = settings.gemini_api_key
-    if key is None or not key.get_secret_value():
-        raise ApiError(ErrorCode.AI_UNAVAILABLE, "Brak klucza GEMINI_API_KEY.")
-    return GeminiTransport(
-        api_key=key.get_secret_value(),
-        model=model,
+def create_llm(settings: Settings) -> OpenRouter | None:
+    """None without an API key: extraction still works, analysis answers AI_UNAVAILABLE."""
+    key = settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else ""
+    if not key:
+        logger.warning("OPENROUTER_API_KEY is not set: analysis and vision OCR are off")
+        return None
+    client = httpx2.Client(
+        base_url=BASE_URL,
+        headers={"Authorization": f"Bearer {key}"},
         timeout=settings.llm_timeout_seconds,
     )
+    return OpenRouter(client, settings.llm_model)
 
 
-class GeminiTransport:
-    """Interactions API: JSON schema + thinking_level=low (ai.google.dev, 2026-10)."""
-
-    def __init__(self, *, api_key: str, model: str, timeout: float) -> None:
-        from google import genai
-
-        self._client = genai.Client(api_key=api_key)
-        self.model = model
-        self.timeout = timeout
-
-    def complete(self, *, system: str, user: str) -> dict[str, Any]:
-        try:
-            interaction = self._client.interactions.create(
-                model=self.model,
-                input=f"{system}\n\n{user}",
-                response_format={
-                    "type": "text",
-                    "mime_type": "application/json",
-                    "schema": llm_json_schema(),
-                },
-                generation_config={"thinking_level": "low"},
-                timeout=self.timeout,
-            )
-        except Exception as error:
-            _map_provider_error(error)
-        text = getattr(interaction, "output_text", None) or ""
-        if not text:
-            raise ApiError(ErrorCode.AI_INVALID_RESPONSE)
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError as error:
-            raise ApiError(ErrorCode.AI_INVALID_RESPONSE) from error
-        if not isinstance(data, dict):
-            raise ApiError(ErrorCode.AI_INVALID_RESPONSE)
-        return data
-
-    def transcribe(self, image: Image.Image) -> str:
-        payload = _image_b64(image)
-        try:
-            interaction = self._client.interactions.create(
-                model=self.model,
-                input=[
-                    {"type": "text", "text": VISION_PROMPT},
-                    {"type": "image", "data": payload, "mime_type": "image/png"},
-                ],
-                generation_config={"thinking_level": "low"},
-                timeout=self.timeout,
-            )
-        except Exception as error:
-            _map_provider_error(error)
-        text = getattr(interaction, "output_text", None) or ""
-        return text.strip()
+def _answer_text(data: dict[str, Any]) -> str:
+    choice = data["choices"][0]
+    usage = data.get("usage") or {}
+    logger.info(
+        "openrouter id=%s provider=%s finish=%s tokens=%s/%s",
+        data.get("id"),
+        data.get("provider"),
+        choice.get("finish_reason"),
+        usage.get("prompt_tokens"),
+        usage.get("completion_tokens"),
+    )
+    return choice["message"].get("content") or ""
 
 
-class AnthropicTransport:
-    """messages.parse with Pydantic output_format; never sends temperature/top_p/top_k."""
-
-    def __init__(self, *, api_key: str, model: str, timeout: float) -> None:
-        import anthropic
-
-        self._client = anthropic.Anthropic(api_key=api_key, timeout=timeout, max_retries=1)
-        self.model = model
-
-    def complete(self, *, system: str, user: str) -> dict[str, Any]:
-        import anthropic
-
-        try:
-            response = self._client.messages.parse(
-                model=self.model,
-                max_tokens=8192,
-                system=system,
-                messages=[{"role": "user", "content": user}],
-                output_format=LlmAnalysis,
-                output_config={"effort": "low"},
-            )
-        except anthropic.APITimeoutError as error:
-            raise ApiError(ErrorCode.TIMEOUT) from error
-        except anthropic.APIStatusError as error:
-            if error.status_code in {408, 504}:
-                raise ApiError(ErrorCode.TIMEOUT) from error
-            raise ApiError(ErrorCode.AI_UNAVAILABLE) from error
-        except Exception as error:
-            _map_provider_error(error)
-        parsed = response.parsed_output
-        if parsed is None:
-            raise ApiError(ErrorCode.AI_INVALID_RESPONSE)
-        data: dict[str, Any] = json.loads(parsed.model_dump_json(by_alias=True))
-        return data
-
-    def transcribe(self, image: Image.Image) -> str:
-        import anthropic
-
-        payload = _image_b64(image)
-        try:
-            response = self._client.messages.create(
-                model=self.model,
-                max_tokens=4096,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "image/png",
-                                    "data": payload,
-                                },
-                            },
-                            {"type": "text", "text": VISION_PROMPT},
-                        ],
-                    }
-                ],
-                output_config={"effort": "low"},
-            )
-        except anthropic.APITimeoutError as error:
-            raise ApiError(ErrorCode.TIMEOUT) from error
-        except anthropic.APIStatusError as error:
-            if error.status_code in {408, 504}:
-                raise ApiError(ErrorCode.TIMEOUT) from error
-            raise ApiError(ErrorCode.AI_UNAVAILABLE) from error
-        except Exception as error:
-            _map_provider_error(error)
-        parts: list[str] = []
-        for block in response.content:
-            if block.type == "text":
-                parts.append(block.text)
-        return "\n".join(parts).strip()
-
-
-class MockTransport:
-    """Injectable transport for tests (no network)."""
-
-    def __init__(
-        self,
-        complete_fn: Callable[[str, str], dict[str, Any]],
-        transcribe_fn: Callable[[Image.Image], str] | None = None,
-    ) -> None:
-        self._complete = complete_fn
-        self._transcribe = transcribe_fn or (lambda _image: "")
-
-    def complete(self, *, system: str, user: str) -> dict[str, Any]:
-        return self._complete(system, user)
-
-    def transcribe(self, image: Image.Image) -> str:
-        return self._transcribe(image)
-
-
-def analyze_with_llm(transport: LlmTransport, *, system: str, user: str) -> dict[str, Any]:
-    return transport.complete(system=system, user=user)
-
-
-def make_vision_fallback(transport: LlmTransport) -> Callable[[Image.Image], Any]:
-    from app.ocr import OcrResult
-
-    def vision(image: Image.Image) -> OcrResult | None:
-        try:
-            text = transport.transcribe(image)
-        except ApiError:
-            logger.info("vision fallback failed")
-            return None
-        if not text.strip():
-            return None
-        return OcrResult(text=text, confidence=100.0, method="vision")
-
-    return vision
-
-
-def _image_b64(image: Image.Image) -> str:
-    buffer = io.BytesIO()
-    image.convert("RGB").save(buffer, format="PNG")
-    return base64.b64encode(buffer.getvalue()).decode("ascii")
-
-
-def _map_provider_error(error: Exception) -> NoReturn:
-    name = type(error).__name__.lower()
-    message = str(error).lower()
-    if "timeout" in name or "timeout" in message or "timed out" in message:
-        raise ApiError(ErrorCode.TIMEOUT) from error
-    if "429" in message or "rate" in message:
-        raise ApiError(ErrorCode.AI_UNAVAILABLE) from error
-    logger.error("llm provider error: %s", type(error).__name__)
-    raise ApiError(ErrorCode.AI_UNAVAILABLE) from error
+def _provider_error(status: int, detail: str) -> ApiError:
+    """Logs the status and error type, never document content, and maps them to an API code."""
+    logger.warning("openrouter call failed status=%s %s", status, detail)
+    return ApiError(ErrorCode.TIMEOUT if status in TIMEOUT_STATUSES else ErrorCode.AI_UNAVAILABLE)

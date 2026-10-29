@@ -1,5 +1,6 @@
+"""Runtime settings, read from environment variables (documented in .env.example)."""
+
 from functools import lru_cache
-from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -8,10 +9,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    llm_provider: Literal["gemini", "anthropic"] = "gemini"
-    llm_model: str | None = None
-    gemini_api_key: SecretStr | None = None
-    anthropic_api_key: SecretStr | None = None
+    openrouter_api_key: SecretStr | None = None
+    llm_model: str = "anthropic/claude-haiku-5.5"
+    llm_timeout_seconds: float = 60
 
     allowed_origins: str = "https://planetoida90210.github.io"
 
@@ -23,15 +23,12 @@ class Settings(BaseSettings):
     ocr_min_confidence: float = 60
     vision_fallback: bool = True
     chunk_chars: int = 40_000
-    chunk_concurrency: int = 3
 
     rate_limit_per_minute: int = 6
     daily_analysis_limit: int = 300
     extraction_ttl_seconds: int = 900
-    llm_timeout_seconds: float = 60.0
-    # Wall-clock budgets for the whole extract / analyze request (→ TIMEOUT 504).
-    extract_timeout_seconds: float = 90.0
-    analyze_timeout_seconds: float = 120.0
+    extract_timeout_seconds: float = 90
+    analyze_timeout_seconds: float = 120
 
     @property
     def origins(self) -> list[str]:
@@ -40,15 +37,6 @@ class Settings(BaseSettings):
     @property
     def max_file_bytes(self) -> int:
         return self.max_file_mb * 1024 * 1024
-
-    @property
-    def resolved_model(self) -> str:
-        if self.llm_model:
-            return self.llm_model
-        # Defaults verified 2026-10-29 against provider docs (see app/llm.py).
-        if self.llm_provider == "anthropic":
-            return "claude-haiku-5-5"
-        return "gemini-3.8-flash"
 
 
 @lru_cache
