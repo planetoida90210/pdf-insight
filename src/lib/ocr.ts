@@ -6,6 +6,7 @@ import {
   OCR_DPI,
   OCR_LANGS,
   OCR_MIN_CHARS,
+  SCAN_IMAGE_SHARE,
   SCAN_TEXT_CHARS,
 } from './config';
 import { openPdf, readPageContent, renderPageImage, type PageContent } from './pdf';
@@ -18,13 +19,13 @@ const UNMAPPED = /[\p{Cc}\uFFFD]/gu;
 const PDF_UNITS_PER_INCH = 72;
 
 // The backend's rule: too little text, an unreadable text layer, or a scan under a short one.
-export function needsOcr({ text, paintsImage }: PageContent): boolean {
+export function needsOcr({ text, imageShare }: PageContent): boolean {
   const chars = text.replace(/\s/g, '');
   const unmapped = chars.match(UNMAPPED)?.length ?? 0;
   return (
     chars.length < OCR_MIN_CHARS ||
     unmapped * 2 > chars.length ||
-    (paintsImage && chars.length < SCAN_TEXT_CHARS)
+    (imageShare >= SCAN_IMAGE_SHARE && chars.length < SCAN_TEXT_CHARS)
   );
 }
 

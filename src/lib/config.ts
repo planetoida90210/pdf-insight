@@ -5,6 +5,7 @@ export const MAX_FILE_MB = 10;
 // them itself when the browser did not. The browser reads them first, by the same values:
 export const OCR_MIN_CHARS = 25; // setting OCR_MIN_CHARS
 export const SCAN_TEXT_CHARS = 200; // SCAN_TEXT_CHARS
+export const SCAN_IMAGE_SHARE = 0.5; // SCAN_IMAGE_SHARE
 export const OCR_LANGS = 'pol+eng'; // setting OCR_LANG
 export const OCR_DPI = 200; // OCR_SCALE in backend/app/ocr.py
 export const MAX_RENDER_PIXELS = 9_000_000; // MAX_RENDER_PIXELS in backend/app/ocr.py

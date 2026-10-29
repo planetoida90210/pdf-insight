@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkFileInfo, hasPdfSignature, MAX_FILE_BYTES } from './pdf';
+import { checkFileInfo, hasPdfSignature, imageArea, MAX_FILE_BYTES } from './pdf';
 
 describe('checkFileInfo', () => {
   it('accepts a PDF up to 10 MB', () => {
@@ -46,5 +46,44 @@ describe('hasPdfSignature', () => {
   it('rejects a .pdf file that is not a PDF', async () => {
     expect(await hasPdfSignature(new Blob(['<html>not a PDF</html>']))).toBe(false);
     expect(await hasPdfSignature(new Blob(['%PD']))).toBe(false);
+  });
+});
+
+describe('imageArea', () => {
+  const ops = {
+    save: 1,
+    restore: 2,
+    transform: 3,
+    paintFormXObjectBegin: 4,
+    paintFormXObjectEnd: 5,
+    paintImageXObject: 6,
+    paintInlineImageXObject: 7,
+    paintImageMaskXObject: 8,
+  };
+
+  it('sizes each image by the transforms around it', () => {
+    const scan = [
+      [1, []],
+      [3, [595, 0, 0, 842, 0, 0]],
+      [6, ['scan']],
+      [2, []],
+    ];
+    const logo = [
+      [1, []],
+      [3, [50, 0, 0, 20, 400, 780]],
+      [7, []],
+      [2, []],
+    ];
+    const inForm = [
+      [4, [[2, 0, 0, 2, 0, 0], null]],
+      [8, ['mask']],
+      [5, []],
+    ];
+    const operators = [...scan, ...logo, ...inForm, [6, ['unscaled']]];
+    const list = {
+      fnArray: operators.map(([fn]) => fn as number),
+      argsArray: operators.map(([, args]) => args as unknown[]),
+    };
+    expect(imageArea(list, ops)).toBe(595 * 842 + 50 * 20 + 4 + 1);
   });
 });

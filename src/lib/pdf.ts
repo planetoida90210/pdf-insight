@@ -1,4 +1,5 @@
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist';
+import type { PDFOperatorList } from 'pdfjs-dist/types/src/display/api';
 // The `?url` import gives the worker's hashed URL with the `base` prefix, so it also loads
 // under /pdf-insight/ on GitHub Pages.
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -56,26 +57,56 @@ export async function validatePdf(file: File): Promise<void> {
   await pdf.loadingTask.destroy();
 }
 
-export type PageContent = { text: string; paintsImage: boolean };
+export type PageContent = { text: string; imageShare: number };
 
-// pdf.js operators that paint a raster image.
+// pdf.js operators that paint one raster image.
 const IMAGE_OPERATORS = [
   'paintImageXObject',
-  'paintImageXObjectRepeat',
   'paintInlineImageXObject',
-  'paintInlineImageXObjectGroup',
   'paintImageMaskXObject',
-  'paintImageMaskXObjectRepeat',
-  'paintImageMaskXObjectGroup',
 ] as const;
+type OperatorCodes = Record<
+  | 'save'
+  | 'restore'
+  | 'transform'
+  | 'paintFormXObjectBegin'
+  | 'paintFormXObjectEnd'
+  | (typeof IMAGE_OPERATORS)[number],
+  number
+>;
+
+const determinant = (matrix: unknown): number =>
+  Array.isArray(matrix) ? Math.abs(matrix[0] * matrix[3] - matrix[1] * matrix[2]) : 1;
+
+// An image fills the unit square of the current transform, so its area is the transform's
+// determinant; moves do not change it. Like the backend, overlaps count twice and clips are
+// ignored.
+export function imageArea(
+  { fnArray, argsArray }: Pick<PDFOperatorList, 'fnArray' | 'argsArray'>,
+  ops: OperatorCodes,
+): number {
+  const images = new Set(IMAGE_OPERATORS.map((name) => ops[name]));
+  const saved: number[] = [];
+  let scale = 1;
+  let area = 0;
+  fnArray.forEach((fn, index) => {
+    const args: unknown = argsArray[index];
+    if (fn === ops.save || fn === ops.paintFormXObjectBegin) saved.push(scale);
+    if (fn === ops.restore || fn === ops.paintFormXObjectEnd) scale = saved.pop() ?? scale;
+    if (fn === ops.transform) scale *= determinant(args);
+    if (fn === ops.paintFormXObjectBegin && Array.isArray(args)) scale *= determinant(args[0]);
+    if (images.has(fn)) area += scale;
+  });
+  return area;
+}
 
 export async function readPageContent(page: PDFPageProxy): Promise<PageContent> {
   const { OPS } = await loadPdfjs();
   const [content, operators] = await Promise.all([page.getTextContent(), page.getOperatorList()]);
-  const imageOperators = new Set<number>(IMAGE_OPERATORS.map((name) => OPS[name]));
+  const [x0 = 0, y0 = 0, x1 = 0, y1 = 0] = page.view;
   return {
     text: content.items.map((item) => ('str' in item ? item.str : '')).join(''),
-    paintsImage: operators.fnArray.some((fn) => imageOperators.has(fn)),
+    imageShare: imageArea(operators, OPS) / ((x1 - x0) * (y1 - y0)),
   };
 }
 

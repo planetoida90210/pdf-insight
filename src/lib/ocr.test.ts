@@ -3,7 +3,7 @@ import { MAX_OCR_WORKERS, MAX_RENDER_PIXELS, OCR_DPI } from './config';
 import { needsOcr, ocrScale, workerCount } from './ocr';
 
 const TEXT = 'Umowa ramowa nr 14/2026 zawarta 12 marca 2026 r. ';
-const page = (text: string, paintsImage = false) => ({ text, paintsImage });
+const page = (text: string, imageShare = 0) => ({ text, imageShare });
 
 describe('needsOcr', () => {
   it('reads pages with too little text', () => {
@@ -18,9 +18,9 @@ describe('needsOcr', () => {
   });
 
   it('reads scans under a short text layer', () => {
-    expect(needsOcr(page('BATES-000123 '.repeat(4), true))).toBe(true);
-    expect(needsOcr(page('BATES-000123 '.repeat(4)))).toBe(false);
-    expect(needsOcr(page(TEXT.repeat(10), true))).toBe(false);
+    expect(needsOcr(page('BATES-000123 '.repeat(4), 0.9))).toBe(true);
+    expect(needsOcr(page('BATES-000123 '.repeat(4), 0.05))).toBe(false);
+    expect(needsOcr(page(TEXT.repeat(10), 1))).toBe(false);
   });
 });
 
