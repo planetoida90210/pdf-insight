@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
@@ -16,15 +15,16 @@ from starlette.exceptions import HTTPException
 
 from app.analysis import analyze_extraction
 from app.cache import TtlCache
-from app.config import Settings, get_settings
+from app.config import LOG_FORMAT, Settings, get_settings
 from app.errors import ApiError, ErrorCode
-from app.extraction import Extraction, extract_pdf
+from app.extraction import Extraction, read_pdf
 from app.llm import OpenRouter, create_llm
 from app.ratelimit import DailyCounter, SlidingWindowLimiter, client_ip
 from app.schema import AnalysisResult, AnalyzeRequest, ExtractResponse
 from app.upload import read_pdf_upload
+from app.worker import run_isolated
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 # Room for the multipart framing around the file in the Content-Length check.
@@ -36,10 +36,10 @@ FILE_NAME_MAX = 255
 
 def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
     app = FastAPI(title="PDF Insight API", docs_url=None, redoc_url=None, openapi_url=None)
-    llm = llm or create_llm(settings)
+    budget = DailyCounter(limit=settings.daily_llm_call_limit)
+    llm = llm or create_llm(settings, budget)
     cache: TtlCache[Extraction] = TtlCache(ttl=settings.extraction_ttl_seconds)
     limiter = SlidingWindowLimiter(limit=settings.rate_limit_per_minute)
-    daily = DailyCounter(limit=settings.daily_analysis_limit)
     extract_slots = asyncio.Semaphore(EXTRACT_CONCURRENCY)
     app.state.cache = cache
 
@@ -89,13 +89,16 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
     async def extract(file: Annotated[UploadFile, File()]) -> ExtractResponse:
         data = await read_pdf_upload(file, settings)
         file_name = (file.filename or "document.pdf")[:FILE_NAME_MAX]
-        vision = llm if settings.vision_fallback else None
-        # The deadline is checked between pages inside the worker thread, so the slot is held
-        # until the work really stops (a cancelled await would leave the thread running).
-        deadline = time.monotonic() + settings.extract_timeout_seconds
         async with extract_slots:
             extraction = await asyncio.to_thread(
-                extract_pdf, data, file_name, settings, vision=vision, deadline=deadline
+                run_isolated,
+                read_pdf,
+                data,
+                file_name,
+                settings,
+                budget,
+                timeout=settings.extract_timeout_seconds,
+                memory_mb=settings.extract_memory_mb,
             )
         extraction_id = str(uuid.uuid4())
         cache.set(extraction_id, extraction)
@@ -116,8 +119,6 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
             raise ApiError(ErrorCode.EXTRACTION_NOT_FOUND)
         if llm is None:
             raise ApiError(ErrorCode.AI_UNAVAILABLE)
-        if not daily.hit():
-            raise ApiError(ErrorCode.DAILY_LIMIT)
         try:
             return await asyncio.wait_for(
                 asyncio.to_thread(analyze_extraction, llm, extraction, settings),

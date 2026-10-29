@@ -9,6 +9,8 @@ from datetime import UTC, date, datetime
 
 from starlette.requests import Request
 
+from app.worker import CONTEXT
+
 
 class SlidingWindowLimiter:
     """Allows `limit` hits per key within any `window` seconds."""
@@ -40,23 +42,31 @@ class SlidingWindowLimiter:
                 del self._hits[key]
 
 
-class DailyCounter:
-    """Global cap per UTC day; protects the LLM budget regardless of client IPs."""
+def utc_today() -> date:
+    return datetime.now(UTC).date()
 
-    def __init__(self, limit: int, today: Callable[[], date] = lambda: datetime.now(UTC).date()):
+
+class DailyCounter:
+    """Global cap per UTC day; protects the LLM budget regardless of client IPs.
+
+    The count lives in shared memory, so extraction workers draw from the same budget.
+    """
+
+    def __init__(self, limit: int, today: Callable[[], date] = utc_today) -> None:
         self.limit = limit
         self.today = today
-        self._day = today()
-        self._count = 0
+        self._day = CONTEXT.Value("i", today().toordinal(), lock=False)
+        self._count = CONTEXT.Value("i", 0)
 
     def hit(self) -> bool:
-        day = self.today()
-        if day != self._day:
-            self._day, self._count = day, 0
-        if self._count >= self.limit:
-            return False
-        self._count += 1
-        return True
+        with self._count.get_lock():
+            day = self.today().toordinal()
+            if day != self._day.value:
+                self._day.value, self._count.value = day, 0
+            if self._count.value >= self.limit:
+                return False
+            self._count.value += 1
+            return True
 
 
 # DigitalOcean App Platform puts the client address in this header. Its X-Forwarded-For names

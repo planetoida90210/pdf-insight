@@ -10,6 +10,7 @@ from app.analysis import analyze_extraction
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
 from app.llm import OpenRouter, create_llm
+from app.ratelimit import DailyCounter
 from tests.fakes import completion, extraction
 
 KEY = "sk-or-test"
@@ -28,7 +29,9 @@ def openrouter(*replies: httpx2.Response | Exception) -> tuple[OpenRouter, list[
             raise answer
         return answer
 
-    llm = create_llm(Settings(openrouter_api_key=KEY), httpx2.MockTransport(reply))
+    llm = create_llm(
+        Settings(openrouter_api_key=KEY), DailyCounter(100), httpx2.MockTransport(reply)
+    )
     assert llm is not None
     return llm, requests
 

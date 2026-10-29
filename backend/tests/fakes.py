@@ -6,6 +6,7 @@ import httpx2
 
 from app.extraction import Extraction
 from app.llm import BASE_URL, OpenRouter
+from app.ratelimit import DailyCounter
 from app.schema import AnalysisWarning, PageInfo
 
 
@@ -39,9 +40,10 @@ def completion(content: str | None) -> dict[str, Any]:
 class FakeLlm(OpenRouter):
     """The real client over a mock transport: every request is answered with `respond(prompt)`."""
 
-    def __init__(self, respond: Callable[[str], str]) -> None:
+    def __init__(self, respond: Callable[[str], str], daily_limit: int = 100) -> None:
         transport = httpx2.MockTransport(self._reply)
-        super().__init__(httpx2.Client(base_url=BASE_URL, transport=transport), "test/model")
+        client = httpx2.Client(base_url=BASE_URL, transport=transport)
+        super().__init__(client, "test/model", DailyCounter(daily_limit))
         self.respond = respond
         self.prompts: list[str] = []
 

@@ -1,4 +1,3 @@
-import time
 from shutil import which
 
 import pypdfium2 as pdfium
@@ -21,7 +20,6 @@ def extract(data: bytes, **settings: object) -> Extraction:
         "test.pdf",
         Settings(vision_fallback=False, **settings),  # type: ignore[arg-type]
         vision=None,
-        deadline=time.monotonic() + 60,
     )
 
 
@@ -66,12 +64,6 @@ def test_damaged_pdf_that_pdfium_opens_is_invalid() -> None:
     with pytest.raises(ApiError) as raised:
         extract(damaged)
     assert raised.value.code == ErrorCode.INVALID_PDF
-
-
-def test_deadline_stops_extraction() -> None:
-    with pytest.raises(ApiError) as raised:
-        extract_pdf(text_pdf("a"), "a.pdf", Settings(), vision=None, deadline=0)
-    assert raised.value.code == ErrorCode.TIMEOUT
 
 
 @needs_tesseract

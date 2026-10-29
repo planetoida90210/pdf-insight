@@ -1,7 +1,6 @@
 """Per-page text extraction: visible text layer, hidden-text filter, OCR for scanned pages."""
 
 import logging
-import time
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, cast
@@ -14,9 +13,10 @@ from PIL import Image
 from app.config import Settings
 from app.errors import ApiError, ErrorCode, WarningCode, warning
 from app.injection import find_injection
-from app.llm import OpenRouter
+from app.llm import OpenRouter, create_llm
 from app.ocr import OcrResult, ocr_page, render_page, render_scale
 from app.prompts import PAGE_MARKER, PAGE_SEPARATOR
+from app.ratelimit import DailyCounter
 from app.schema import AnalysisWarning, PageInfo
 from app.upload import open_pdf
 
@@ -40,17 +40,20 @@ class Extraction:
         return PAGE_SEPARATOR.join(self.pages)
 
 
+def read_pdf(data: bytes, file_name: str, settings: Settings, budget: DailyCounter) -> Extraction:
+    """extract_pdf for the worker process, which builds its own vision client: an open HTTP
+    client cannot cross the process boundary."""
+    enabled = settings.vision_fallback and settings.openrouter_api_key
+    vision = create_llm(settings, budget) if enabled else None
+    return extract_pdf(data, file_name, settings, vision=vision)
+
+
 def extract_pdf(
-    data: bytes,
-    file_name: str,
-    settings: Settings,
-    *,
-    vision: OpenRouter | None,
-    deadline: float,
+    data: bytes, file_name: str, settings: Settings, *, vision: OpenRouter | None
 ) -> Extraction:
     """The visible text of every page and its warnings; ApiError when the file cannot be read."""
     try:
-        result = _read_pages(data, file_name, settings, vision, deadline)
+        result = _read_pages(data, file_name, settings, vision)
     except PdfminerException as error:
         # pdfium repairs some damaged files that pdfminer still cannot parse.
         raise ApiError(ErrorCode.INVALID_PDF) from error
@@ -68,16 +71,17 @@ def extract_pdf(
 
 
 def _read_pages(
-    data: bytes, file_name: str, settings: Settings, vision: OpenRouter | None, deadline: float
+    data: bytes, file_name: str, settings: Settings, vision: OpenRouter | None
 ) -> Extraction:
     result = Extraction(file_name=file_name, pages=[], page_info=[], warnings=[])
     with open_pdf(data, settings.max_pages) as pdf, pdfplumber.open(BytesIO(data)) as plumber:
         for number, page in enumerate(plumber.pages, start=1):
-            if time.monotonic() > deadline:
-                raise ApiError(ErrorCode.TIMEOUT)
             ocr_pages = sum(info.method != "text" for info in result.page_info)
             ocr_allowed = ocr_pages < settings.max_ocr_pages
             info, text, warnings = _read_page(pdf, page, number, settings, vision, ocr_allowed)
+            # pdfplumber keeps every parsed page otherwise; long documents would outgrow
+            # the worker's memory cap.
+            page.close()
             result.page_info.append(info)
             result.warnings.extend(warnings)
             if text:

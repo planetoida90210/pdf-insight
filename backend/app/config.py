@@ -5,6 +5,8 @@ from functools import lru_cache
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+LOG_FORMAT = "%(levelname)s %(name)s %(message)s"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -25,9 +27,10 @@ class Settings(BaseSettings):
     chunk_chars: int = 40_000
 
     rate_limit_per_minute: int = 6
-    daily_analysis_limit: int = 300
+    daily_llm_call_limit: int = 1000
     extraction_ttl_seconds: int = 900
     extract_timeout_seconds: float = 90
+    extract_memory_mb: int = 384
     analyze_timeout_seconds: float = 120
 
     @property

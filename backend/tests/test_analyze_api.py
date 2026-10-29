@@ -133,8 +133,8 @@ def test_missing_key_answers_503_but_extraction_cache_is_checked_first() -> None
     assert analyze(client).status_code == 503
 
 
-def test_unknown_extraction_does_not_use_the_daily_cap() -> None:
-    client, app = make_client(FakeLlm(lambda _: llm_answer()), daily_analysis_limit=1)
+def test_daily_cap_counts_llm_calls() -> None:
+    client, app = make_client(FakeLlm(lambda _: llm_answer(), daily_limit=1))
     assert analyze(client, "missing").status_code == 404
     seed(app, "a")
     seed(app, "b")

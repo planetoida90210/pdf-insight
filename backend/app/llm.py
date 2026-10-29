@@ -8,6 +8,7 @@ import httpx2
 
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
+from app.ratelimit import DailyCounter
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +20,10 @@ TIMEOUT_STATUSES = {408, 504}
 
 
 class OpenRouter:
-    def __init__(self, client: httpx2.Client, model: str) -> None:
+    def __init__(self, client: httpx2.Client, model: str, budget: DailyCounter) -> None:
         self._client = client
         self.model = model
+        self._budget = budget
 
     def generate(
         self,
@@ -31,7 +33,12 @@ class OpenRouter:
         image_png: bytes | None = None,
         json_schema: dict[str, Any] | None = None,
     ) -> str:
-        """Returns the answer text; provider failures raise ApiError (AI_UNAVAILABLE or TIMEOUT)."""
+        """Returns the answer text; provider failures raise ApiError (AI_UNAVAILABLE or TIMEOUT).
+
+        Every call takes one unit of the daily budget; DAILY_LIMIT once it is used up.
+        """
+        if not self._budget.hit():
+            raise ApiError(ErrorCode.DAILY_LIMIT)
         content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
         if image_png is not None:
             url = "data:image/png;base64," + base64.b64encode(image_png).decode("ascii")
@@ -74,7 +81,7 @@ class OpenRouter:
 
 
 def create_llm(
-    settings: Settings, transport: httpx2.BaseTransport | None = None
+    settings: Settings, budget: DailyCounter, transport: httpx2.BaseTransport | None = None
 ) -> OpenRouter | None:
     """None without an API key: extraction still works, analysis answers AI_UNAVAILABLE."""
     key = settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else ""
@@ -87,7 +94,7 @@ def create_llm(
         timeout=settings.llm_timeout_seconds,
         transport=transport,
     )
-    return OpenRouter(client, settings.llm_model)
+    return OpenRouter(client, settings.llm_model, budget)
 
 
 def _answer_text(data: dict[str, Any]) -> str:

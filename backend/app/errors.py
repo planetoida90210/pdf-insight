@@ -1,6 +1,8 @@
 """Error and warning codes with their Polish messages (the only place user-facing texts live)."""
 
 from enum import StrEnum
+from functools import partial
+from typing import Any
 
 from app.schema import AnalysisWarning
 
@@ -99,7 +101,12 @@ class ApiError(Exception):
         self.status, template = ERRORS[code]
         self.message = template.format(**fields)
         self.headers = headers
+        self.fields = fields
         super().__init__(code)
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        # Errors raised in the extraction worker come back to the web process by pickle.
+        return partial(ApiError, self.code, self.headers, **self.fields), ()
 
 
 def warning(code: WarningCode, page: int | None = None, **fields: object) -> AnalysisWarning:
