@@ -14,6 +14,8 @@ const MESSAGES = {
   AI_UNAVAILABLE: 'Usługa AI jest chwilowo niedostępna. Spróbuj ponownie za chwilę.',
   TIMEOUT: 'Przetwarzanie trwało zbyt długo i zostało przerwane. Spróbuj ponownie.',
   INTERNAL: 'Wystąpił nieoczekiwany błąd serwera. Spróbuj ponownie.',
+  INVALID_REQUEST: 'Żądanie jest niepoprawne. Sprawdź dane i spróbuj ponownie.',
+  NOT_FOUND: 'Nie znaleziono żądanego zasobu.',
   NETWORK: 'Brak połączenia z serwerem. Sprawdź internet i spróbuj ponownie.',
   INVALID_RESULT: 'Serwer zwrócił wynik niezgodny ze schematem. Spróbuj ponownie.',
   ABORTED: 'Analiza została anulowana.',

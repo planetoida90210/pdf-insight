@@ -9,10 +9,26 @@ import {
 
 // OCR i model AI potrafią działać długo, ale nie dłużej niż limit czasu po stronie serwera.
 const REQUEST_TIMEOUT_MS = 120_000;
+const HEALTH_TIMEOUT_MS = 5_000;
 
 const errorEnvelopeSchema = z.object({
   error: z.object({ code: z.string(), message: z.string() }),
 });
+
+export const healthResponseSchema = z.object({
+  status: z.literal('ok'),
+  provider: z.enum(['gemini', 'anthropic']),
+});
+
+export type HealthResponse = z.infer<typeof healthResponseSchema>;
+export type AiProvider = HealthResponse['provider'];
+
+export const PROVIDER_LABELS: Record<AiProvider, string> = {
+  gemini: 'Google Gemini',
+  anthropic: 'Anthropic Claude',
+};
+
+export const FALLBACK_PROVIDER_LABEL = 'zewnętrzne API AI';
 
 function apiUrl(path: string): string {
   return `${import.meta.env.VITE_API_URL.replace(/\/+$/, '')}${path}`;
@@ -58,6 +74,21 @@ async function request(path: string, init: RequestInit, signal: AbortSignal): Pr
     throw errorFromResponse(response.status, body, response.headers.get('Retry-After'));
   }
   return body;
+}
+
+// Wywołanie na starcie budzi backend i pozwala nazwać dostawcę AI w informacji o prywatności.
+export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse | null> {
+  const timeout = AbortSignal.timeout(HEALTH_TIMEOUT_MS);
+  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  try {
+    const response = await fetch(apiUrl('/api/health'), { method: 'GET', signal: combined });
+    if (!response.ok) return null;
+    const body: unknown = await response.json().catch(() => null);
+    const parsed = healthResponseSchema.safeParse(body);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function extractText(file: File, signal: AbortSignal): Promise<ExtractResponse> {

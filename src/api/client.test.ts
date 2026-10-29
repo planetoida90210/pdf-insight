@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import umowa from '../../schema/fixtures/valid/umowa.json';
 import { AppError } from '../lib/errors';
-import { analyzeExtraction, errorFromResponse } from './client';
+import { analyzeExtraction, errorFromResponse, fetchHealth, healthResponseSchema } from './client';
 
 const envelope = (code: string) => ({ error: { code, message: 'Komunikat serwera' } });
 
@@ -11,6 +11,18 @@ describe('errorFromResponse', () => {
     expect(error.code).toBe('UNSUPPORTED_TYPE');
     expect(error.message).toBe('To nie jest plik PDF. Wybierz plik w formacie PDF.');
     expect(error.retryable).toBe(false);
+  });
+
+  it('mapuje INVALID_REQUEST i NOT_FOUND na polskie komunikaty', () => {
+    const invalid = errorFromResponse(400, envelope('INVALID_REQUEST'), null);
+    expect(invalid.code).toBe('INVALID_REQUEST');
+    expect(invalid.message).toBe('Żądanie jest niepoprawne. Sprawdź dane i spróbuj ponownie.');
+    expect(invalid.retryable).toBe(true);
+
+    const missing = errorFromResponse(404, envelope('NOT_FOUND'), null);
+    expect(missing.code).toBe('NOT_FOUND');
+    expect(missing.message).toBe('Nie znaleziono żądanego zasobu.');
+    expect(missing.retryable).toBe(true);
   });
 
   it('oznacza błędy przejściowe jako możliwe do ponowienia', () => {
@@ -35,6 +47,33 @@ describe('errorFromResponse', () => {
     expect(errorFromResponse(429, null, null).code).toBe('RATE_LIMITED');
     expect(errorFromResponse(504, null, null).code).toBe('TIMEOUT');
     expect(errorFromResponse(500, envelope('NIEZNANY'), null).code).toBe('INTERNAL');
+  });
+});
+
+describe('fetchHealth', () => {
+  beforeEach(() => {
+    vi.stubEnv('VITE_API_URL', 'https://api.example.test/');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it('przyjmuje odpowiedź z dostawcą AI', async () => {
+    const body = { status: 'ok', provider: 'gemini' };
+    expect(healthResponseSchema.parse(body)).toEqual(body);
+
+    vi.stubGlobal('fetch', () => Promise.resolve(Response.json(body)));
+    await expect(fetchHealth()).resolves.toEqual(body);
+  });
+
+  it('zwraca null przy błędzie sieci lub niepoprawnym schemacie', async () => {
+    vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed to fetch')));
+    await expect(fetchHealth()).resolves.toBeNull();
+
+    vi.stubGlobal('fetch', () => Promise.resolve(Response.json({ status: 'ok' })));
+    await expect(fetchHealth()).resolves.toBeNull();
   });
 });
 
