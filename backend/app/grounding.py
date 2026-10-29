@@ -1,6 +1,7 @@
 """Keeps only the amounts and dates whose digits appear in the source text, in any script."""
 
 import re
+from decimal import Decimal
 
 from app.schema import LlmAnalysis
 
@@ -36,7 +37,9 @@ def amount_in(value: float, text: str) -> bool:
     in order from the start of a digit group, at most one separator of any kind between two of
     them, then only zeros to the group's end. "12 300,00", "1,23,600", "13\\n100,00" and
     "(105.00)" write 12300, 123600, 13100 and -105; "2,5 mln" writes 2500000."""
-    digits = re.sub(r"\D", "", format(abs(value), "f")).rstrip("0") or "0"
+    # str() gives the shortest decimal form of a float; format(value, "f") would round to six
+    # places and add float noise to large values.
+    digits = re.sub(r"\D", "", format(Decimal(str(abs(value))), "f")).rstrip("0") or "0"
     # The pattern starts with the first digit and only then checks that no digit precedes it:
     # a pattern that starts with a literal is searched for several times faster.
     separated = "".join(rf"\W?{digit}" for digit in digits[1:])

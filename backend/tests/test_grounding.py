@@ -18,6 +18,10 @@ from tests.fakes import llm_answer
         (1234.5, "1'234.50"),
         (99.5, "99,5%"),
         (0.05, "0,05 zł/kWh"),
+        # Large totals with cents and rates with more than six decimals keep all their digits.
+        (12345678901.12, "12,345,678,901.12 USD"),
+        (0.1234567, "kurs 0,1234567"),
+        (1e16, "10 000 000 000 000 000"),
         # Lakh grouping, a thin space, a typographic apostrophe, Arabic and Devanagari digits.
         (123600, "₹1,23,600.00"),
         (12300, "12\u2009300"),
