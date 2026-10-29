@@ -1,271 +1,140 @@
-"""Per-page PDF text extraction with render-based hidden-text filtering."""
-
-from __future__ import annotations
+"""Per-page text extraction: visible text layer, hidden-text filter, OCR for scanned pages."""
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from io import BytesIO
-from typing import Literal
+from typing import Any, cast
 
 import pdfplumber
 import pypdfium2 as pdfium
 from PIL import Image
 
 from app.config import Settings
-from app.errors import ApiError, ErrorCode
-from app.injection import scan_injection
-from app.ocr import VisionFallback, ocr_page, render_page, vision_fallback
+from app.errors import ApiError, ErrorCode, WarningCode, warning
+from app.injection import find_injection
+from app.llm import OpenRouter
+from app.ocr import ocr_page, render_page
 from app.schema import AnalysisWarning, PageInfo
+from app.upload import open_pdf
 
 logger = logging.getLogger("pdf_insight")
 
-# Visibility render (~108 DPI). Lowest scale that still separates white-on-white
-# from white-on-dark on the brief / test PDFs; cheaper than 2x on shared CPU.
+# ~108 DPI: enough to tell a glyph from a flat background, cheap on a shared CPU.
 VISIBILITY_SCALE = 1.5
-# max-min luminance below this => glyph region is flat (same colour as background).
-LUMINANCE_THRESHOLD = 15.0
-HIDDEN_SNIPPET_MAX = 160
+# A glyph whose box has a smaller luminance spread is drawn in the background colour.
+MIN_LUMINANCE_SPREAD = 15
 
 
 @dataclass(slots=True)
-class PageResult:
-    page: int
-    method: Literal["text", "ocr", "vision"]
-    text: str
-    chars: int
-    confidence: float | None
-    hidden_snippet: str | None = None
-
-
-@dataclass(slots=True)
-class ExtractionResult:
-    pages: int
-    page_results: list[PageResult]
-    text: str
-    chars: int
+class Extraction:
+    file_name: str
+    pages: list[str]  # "[Strona N]\n<text>" blocks, only pages that have text
     page_info: list[PageInfo]
-    warnings: list[AnalysisWarning] = field(default_factory=list)
+    warnings: list[AnalysisWarning]
 
-
-def _luminance_spread(region: Image.Image) -> float:
-    if region.width == 0 or region.height == 0:
-        return 0.0
-    extrema = region.convert("L").getextrema()
-    # Mode "L" returns (min, max); multi-band modes return a nested tuple.
-    if isinstance(extrema[0], tuple):
-        return 0.0
-    low, high = extrema
-    return float(high - low)
-
-
-def _char_visible(
-    char: dict[str, object],
-    page_width: float,
-    page_height: float,
-    rendered: Image.Image,
-    scale: float,
-) -> bool:
-    size = float(char.get("size") or 0)  # type: ignore[arg-type]
-    x0 = float(char["x0"])  # type: ignore[arg-type]
-    x1 = float(char["x1"])  # type: ignore[arg-type]
-    top = float(char["top"])  # type: ignore[arg-type]
-    bottom = float(char["bottom"])  # type: ignore[arg-type]
-    if size < 1.0 or x1 <= 0 or bottom <= 0 or x0 >= page_width or top >= page_height:
-        return False
-    px0 = int(max(0, x0 * scale))
-    px1 = int(min(rendered.width, max(px0 + 1, x1 * scale)))
-    py0 = int(max(0, top * scale))
-    py1 = int(min(rendered.height, max(py0 + 1, bottom * scale)))
-    region = rendered.crop((px0, py0, px1, py1))
-    return _luminance_spread(region) >= LUMINANCE_THRESHOLD
-
-
-def _split_visible_hidden(
-    chars: list[dict[str, object]],
-    page_width: float,
-    page_height: float,
-    rendered: Image.Image,
-    scale: float,
-) -> tuple[str, str]:
-    """Classify non-whitespace glyphs; whitespace follows the previous glyph's class."""
-    visible: list[str] = []
-    hidden: list[str] = []
-    prev_hidden = False
-    for char in chars:
-        text = str(char.get("text") or "")
-        if not text:
-            continue
-        if text.isspace():
-            (hidden if prev_hidden else visible).append(text)
-            continue
-        is_hidden = not _char_visible(char, page_width, page_height, rendered, scale)
-        prev_hidden = is_hidden
-        (hidden if is_hidden else visible).append(text)
-    return "".join(visible), "".join(hidden)
-
-
-def _snippet(text: str, limit: int = HIDDEN_SNIPPET_MAX) -> str:
-    collapsed = " ".join(text.split())
-    if len(collapsed) <= limit:
-        return collapsed
-    return collapsed[: limit - 1].rstrip() + "…"
-
-
-def _page_marker(page: int) -> str:
-    return f"[Strona {page}]"
+    @property
+    def text(self) -> str:
+        return "\n\n".join(self.pages)
 
 
 def extract_pdf(
     data: bytes,
+    file_name: str,
     settings: Settings,
     *,
-    vision: VisionFallback | None = None,
-    deadline: float | None = None,
-) -> ExtractionResult:
-    """Extract visible text, OCR sparse pages, assemble warnings and markers."""
-    warnings: list[AnalysisWarning] = []
-    page_results: list[PageResult] = []
-    ocr_used = 0
-    vision_fn: VisionFallback = vision or vision_fallback
-
-    def _check_deadline() -> None:
-        if deadline is not None and time.monotonic() > deadline:
-            raise ApiError(ErrorCode.TIMEOUT)
-
-    # pdfplumber for char boxes; pdfium for rendering (and later OCR).
-    with pdfplumber.open(BytesIO(data)) as plumber, pdfium.PdfDocument(data) as pdf:
-        page_count = len(plumber.pages)
-        if page_count == 0:
-            raise ApiError(ErrorCode.INVALID_PDF)
-
-        for index, plumber_page in enumerate(plumber.pages):
-            _check_deadline()
-            page_no = index + 1
-            rendered = render_page(pdf, index, VISIBILITY_SCALE)
-            chars = [dict(char) for char in plumber_page.chars]
-            visible, hidden = _split_visible_hidden(
-                chars,
-                float(plumber_page.width),
-                float(plumber_page.height),
-                rendered,
-                VISIBILITY_SCALE,
-            )
-            if hidden.strip():
-                snippet = _snippet(hidden)
-                warnings.append(
-                    AnalysisWarning(
-                        code="HIDDEN_TEXT",
-                        page=page_no,
-                        message=(
-                            f"Na stronie {page_no} wykryto niewidoczny tekst "
-                            f"(„{snippet}”). Pominięto go w analizie."
-                        ),
-                    )
-                )
-
-            method: Literal["text", "ocr", "vision"] = "text"
-            confidence: float | None = None
-            text = visible
-            hidden_snippet = _snippet(hidden) if hidden.strip() else None
-
-            if len(visible.strip()) < settings.ocr_min_chars:
-                if ocr_used >= settings.max_ocr_pages:
-                    warnings.append(
-                        AnalysisWarning(
-                            code="PAGES_SKIPPED",
-                            page=page_no,
-                            message=(
-                                f"Strona {page_no} wymaga OCR, ale przekroczono limit "
-                                f"{settings.max_ocr_pages} stron OCR — pominięto."
-                            ),
-                        )
-                    )
-                    text = visible
-                else:
-                    ocr = ocr_page(
-                        pdf,
-                        index,
-                        lang=settings.ocr_lang,
-                        min_confidence=settings.ocr_min_confidence,
-                        vision_enabled=settings.vision_fallback,
-                        vision=vision_fn,
-                    )
-                    ocr_used += 1
-                    text = ocr.text
-                    confidence = ocr.confidence
-                    method = "vision" if ocr.method == "vision" else "ocr"
-                    warning_code = "VISION_USED" if method == "vision" else "OCR_USED"
-                    warnings.append(
-                        AnalysisWarning(
-                            code=warning_code,
-                            page=page_no,
-                            message=(
-                                f"Strona {page_no} nie ma warstwy tekstowej — "
-                                f"odczytano ją przez {'vision' if method == 'vision' else 'OCR'}."
-                            ),
-                        )
-                    )
-                    if (
-                        method == "ocr"
-                        and confidence is not None
-                        and confidence < settings.ocr_min_confidence
-                    ):
-                        warnings.append(
-                            AnalysisWarning(
-                                code="OCR_LOW_CONFIDENCE",
-                                page=page_no,
-                                message=(
-                                    f"Strona {page_no}: niska pewność OCR ({confidence:.0f}%)."
-                                ),
-                            )
-                        )
-
-            page_results.append(
-                PageResult(
-                    page=page_no,
-                    method=method,
-                    text=text,
-                    chars=len(text),
-                    confidence=confidence,
-                    hidden_snippet=hidden_snippet,
-                )
-            )
-
-    parts = [f"{_page_marker(p.page)}\n{p.text}".rstrip() for p in page_results if p.text.strip()]
-    full_text = "\n\n".join(parts)
-    if not full_text.strip():
+    vision: OpenRouter | None,
+    deadline: float,
+) -> Extraction:
+    result = Extraction(file_name=file_name, pages=[], page_info=[], warnings=[])
+    with open_pdf(data, settings.max_pages) as pdf, pdfplumber.open(BytesIO(data)) as plumber:
+        for number, page in enumerate(plumber.pages, start=1):
+            if time.monotonic() > deadline:
+                raise ApiError(ErrorCode.TIMEOUT)
+            ocr_pages = sum(info.method != "text" for info in result.page_info)
+            ocr_allowed = ocr_pages < settings.max_ocr_pages
+            info, text, warnings = _read_page(pdf, page, number, settings, vision, ocr_allowed)
+            result.page_info.append(info)
+            result.warnings.extend(warnings)
+            if text:
+                result.pages.append(f"[Strona {number}]\n{text}")
+    if not result.pages:
         raise ApiError(ErrorCode.NO_TEXT)
-
-    if scan_injection(full_text):
-        warnings.append(
-            AnalysisWarning(
-                code="INJECTION_SUSPECTED",
-                page=None,
-                message=(
-                    "W tekście dokumentu wykryto fragmenty wyglądające na instrukcje "
-                    "dla modelu AI. Zostaną one potraktowane jako dane, nie jako polecenia."
-                ),
-            )
-        )
-
-    page_info = [
-        PageInfo(page=p.page, method=p.method, chars=p.chars, confidence=p.confidence)
-        for p in page_results
-    ]
-    total_chars = sum(p.chars for p in page_results)
+    if injection := find_injection(result.text):
+        result.warnings.append(warning(WarningCode.INJECTION_SUSPECTED, snippet=injection))
     logger.info(
-        "extracted pages=%s chars=%s ocr_pages=%s warnings=%s",
-        page_count,
-        total_chars,
-        sum(1 for p in page_results if p.method in {"ocr", "vision"}),
-        len(warnings),
+        "extracted pages=%s chars=%s warnings=%s",
+        len(result.page_info),
+        len(result.text),
+        [w.code for w in result.warnings],
     )
-    return ExtractionResult(
-        pages=page_count,
-        page_results=page_results,
-        text=full_text,
-        chars=total_chars,
-        page_info=page_info,
-        warnings=warnings,
+    return result
+
+
+def _read_page(
+    pdf: pdfium.PdfDocument,
+    page: Any,
+    number: int,
+    settings: Settings,
+    vision: OpenRouter | None,
+    ocr_allowed: bool,
+) -> tuple[PageInfo, str, list[AnalysisWarning]]:
+    visible, hidden = _visible_and_hidden_text(page, render_page(pdf, number - 1, VISIBILITY_SCALE))
+    warnings = [warning(WarningCode.HIDDEN_TEXT, number, snippet=hidden)] if hidden else []
+    text_info = PageInfo(page=number, method="text", chars=len(visible), confidence=None)
+    if len(visible) >= settings.ocr_min_chars:
+        return text_info, visible, warnings
+    if not ocr_allowed:
+        warnings.append(warning(WarningCode.PAGES_SKIPPED, number, limit=settings.max_ocr_pages))
+        return text_info, visible, warnings
+
+    ocr = ocr_page(
+        pdf,
+        number - 1,
+        lang=settings.ocr_lang,
+        min_confidence=settings.ocr_min_confidence,
+        vision=vision,
     )
+    used = WarningCode.VISION_USED if ocr.method == "vision" else WarningCode.OCR_USED
+    warnings.append(warning(used, number))
+    if ocr.confidence is not None and ocr.confidence < settings.ocr_min_confidence:
+        warnings.append(warning(WarningCode.OCR_LOW_CONFIDENCE, number, confidence=ocr.confidence))
+    info = PageInfo(page=number, method=ocr.method, chars=len(ocr.text), confidence=ocr.confidence)
+    return info, ocr.text, warnings
+
+
+def _visible_and_hidden_text(page: Any, rendered: Image.Image) -> tuple[str, str]:
+    """Splits the text layer by what the rendered page actually shows.
+
+    Whitespace glyphs are kept on both sides so pdfplumber can lay out words and lines.
+    """
+    gray = rendered.convert("L")
+    hidden = {
+        id(char)
+        for char in page.chars
+        if not char["text"].isspace() and not _glyph_visible(char, gray)
+    }
+    if not hidden:
+        return page.extract_text().strip(), ""
+    visible = page.filter(lambda obj: id(obj) not in hidden).extract_text()
+    hidden_text = page.filter(
+        lambda obj: id(obj) in hidden or (obj["object_type"] == "char" and obj["text"].isspace())
+    ).extract_text()
+    return visible.strip(), " ".join(hidden_text.split())
+
+
+def _glyph_visible(char: dict[str, Any], gray: Image.Image) -> bool:
+    """Tiny, off-page or flat-coloured glyphs (e.g. white on white) are not visible."""
+    x0, top, x1, bottom = (
+        int(char[key] * VISIBILITY_SCALE) for key in ("x0", "top", "x1", "bottom")
+    )
+    box = (
+        max(x0, 0),
+        max(top, 0),
+        min(max(x1, x0 + 1), gray.width),
+        min(max(bottom, top + 1), gray.height),
+    )
+    if char["size"] < 1 or box[0] >= box[2] or box[1] >= box[3]:
+        return False
+    low, high = cast(tuple[int, int], gray.crop(box).getextrema())  # one band in mode "L"
+    return bool(high - low >= MIN_LUMINANCE_SPREAD)

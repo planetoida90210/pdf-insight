@@ -3,45 +3,30 @@ from typing import Any, cast
 import pytest
 from PIL import Image
 
-from app.llm import MockTransport, make_vision_fallback
-from app.ocr import OcrResult, ocr_page
+from app import ocr
+from app.errors import ApiError, ErrorCode
+from tests.fakes import FakeLlm
 
 
-def test_vision_fallback_returns_vision_method() -> None:
-    transport = MockTransport(
-        complete_fn=lambda _s, _u: {},
-        transcribe_fn=lambda _image: "Aneks 13 100 PLN 135 użytkowników",
+@pytest.fixture(autouse=True)
+def unsure_tesseract(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ocr, "render_page", lambda *_: Image.new("RGB", (10, 10), "white"))
+    monkeypatch.setattr(ocr, "tesseract", lambda *_: ("13 1OO", 40.0))
+
+
+def read(vision: FakeLlm | None) -> ocr.OcrResult:
+    return ocr.ocr_page(cast(Any, None), 0, lang="pol", min_confidence=60, vision=vision)
+
+
+def test_low_confidence_page_is_transcribed_by_vision() -> None:
+    assert read(FakeLlm(lambda _: "Aneks: 13 100 PLN")) == ocr.OcrResult(
+        "Aneks: 13 100 PLN", None, "vision"
     )
-    vision = make_vision_fallback(transport)
-    image = Image.new("RGB", (40, 20), "white")
-    result = vision(image)
-    assert result is not None
-    assert result.method == "vision"
-    assert "13 100" in result.text
 
 
-def test_ocr_page_uses_vision_when_confidence_low(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app import ocr as ocr_mod
+def test_vision_failure_keeps_tesseract_text() -> None:
+    def fail(_: str) -> str:
+        raise ApiError(ErrorCode.AI_UNAVAILABLE)
 
-    def fake_ocr_image(_image: Image.Image, _lang: str) -> OcrResult:
-        return OcrResult(text="x", confidence=10.0, method="ocr")
-
-    def fake_render(_pdf: Any, _index: int, _scale: float) -> Image.Image:
-        return Image.new("RGB", (10, 10), "white")
-
-    monkeypatch.setattr(ocr_mod, "ocr_image", fake_ocr_image)
-    monkeypatch.setattr(ocr_mod, "render_page", fake_render)
-
-    def vision(_image: Image.Image) -> OcrResult:
-        return OcrResult(text="vision text", confidence=100.0, method="vision")
-
-    result = ocr_page(
-        cast(Any, object()),
-        0,
-        lang="eng",
-        min_confidence=60,
-        vision_enabled=True,
-        vision=vision,
-    )
-    assert result.method == "vision"
-    assert result.text == "vision text"
+    assert read(FakeLlm(fail)) == ocr.OcrResult("13 1OO", 40.0, "ocr")
+    assert read(None) == ocr.OcrResult("13 1OO", 40.0, "ocr")

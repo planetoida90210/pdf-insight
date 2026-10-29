@@ -1,81 +1,79 @@
-"""Page rendering and Tesseract OCR, with optional vision-LLM fallback."""
+"""Page rendering and OCR: Tesseract first, a vision model when Tesseract is unsure."""
 
-from __future__ import annotations
-
+import io
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
 
 import pypdfium2 as pdfium
 import pytesseract
 from PIL import Image
 
+from app.errors import ApiError
+from app.llm import OpenRouter
+from app.prompts import VISION_PROMPT, VISION_SYSTEM_PROMPT
+
 logger = logging.getLogger("pdf_insight")
 
-# ~300 DPI relative to a 72 pt PDF page.
-OCR_RENDER_SCALE = 300 / 72
+# 300 DPI: PDF user space is 72 units per inch.
+OCR_SCALE = 300 / 72
 
 
 @dataclass(frozen=True, slots=True)
 class OcrResult:
     text: str
-    confidence: float
-    method: str = "ocr"  # "ocr" | "vision"
+    confidence: float | None
+    method: Literal["ocr", "vision"]
 
 
-def render_page(pdf: pdfium.PdfDocument, page_index: int, scale: float) -> Image.Image:
-    bitmap = pdf[page_index].render(scale=scale)
-    image = bitmap.to_pil().convert("RGB")
-    assert isinstance(image, Image.Image)
-    return image
-
-
-def ocr_image(image: Image.Image, lang: str) -> OcrResult:
-    """Runs Tesseract `image_to_data` and returns text + mean word confidence."""
-    try:
-        data = pytesseract.image_to_data(image, lang=lang, output_type=pytesseract.Output.DICT)
-    except pytesseract.TesseractNotFoundError as error:
-        raise RuntimeError("tesseract binary is not installed") from error
-    words: list[str] = []
-    confidences: list[float] = []
-    for text, conf in zip(data["text"], data["conf"], strict=True):
-        try:
-            score = float(conf)
-        except (TypeError, ValueError):
-            continue
-        if score < 0:
-            continue
-        token = (text or "").strip()
-        if not token:
-            continue
-        words.append(token)
-        confidences.append(score)
-    mean = sum(confidences) / len(confidences) if confidences else 0.0
-    return OcrResult(text=" ".join(words), confidence=mean)
-
-
-VisionFallback = Callable[[Image.Image], OcrResult | None]
-
-
-def vision_fallback(_image: Image.Image) -> OcrResult | None:
-    """No-op default; extract passes make_vision_fallback(transport) when enabled."""
-    return None
+def render_page(pdf: pdfium.PdfDocument, index: int, scale: float) -> Image.Image:
+    image: Image.Image = pdf[index].render(scale=scale).to_pil()
+    return image.convert("RGB")
 
 
 def ocr_page(
     pdf: pdfium.PdfDocument,
-    page_index: int,
+    index: int,
     *,
     lang: str,
     min_confidence: float,
-    vision_enabled: bool,
-    vision: VisionFallback = vision_fallback,
+    vision: OpenRouter | None,
 ) -> OcrResult:
-    image = render_page(pdf, page_index, OCR_RENDER_SCALE)
-    result = ocr_image(image, lang)
-    if vision_enabled and (result.confidence < min_confidence or len(result.text.strip()) < 10):
-        fallback = vision(image)
-        if fallback is not None:
-            logger.info("vision fallback used for page %s", page_index + 1)
-            return fallback
-    return result
+    image = render_page(pdf, index, OCR_SCALE)
+    text, confidence = tesseract(image, lang)
+    if vision is None or confidence >= min_confidence:
+        return OcrResult(text, confidence, "ocr")
+    vision_text = _transcribe(vision, image)
+    if vision_text:
+        return OcrResult(vision_text, None, "vision")
+    return OcrResult(text, confidence, "ocr")
+
+
+def tesseract(image: Image.Image, lang: str) -> tuple[str, float]:
+    """Text with Tesseract's line breaks, plus the mean word confidence (0 when nothing is read)."""
+    data = pytesseract.image_to_data(image, lang=lang, output_type=pytesseract.Output.DICT)
+    lines: dict[tuple[int, int, int], list[str]] = {}
+    confidences: list[float] = []
+    for i, word in enumerate(data["text"]):
+        confidence = float(data["conf"][i])
+        if confidence < 0 or not word.strip():
+            continue
+        line = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        lines.setdefault(line, []).append(word.strip())
+        confidences.append(confidence)
+    text = "\n".join(" ".join(words) for words in lines.values())
+    return text, sum(confidences) / len(confidences) if confidences else 0.0
+
+
+def _transcribe(vision: OpenRouter, image: Image.Image) -> str:
+    """Vision is a best-effort fallback: a provider error keeps the Tesseract text."""
+    png = io.BytesIO()
+    image.save(png, format="PNG")
+    try:
+        text = vision.generate(
+            system=VISION_SYSTEM_PROMPT, prompt=VISION_PROMPT, image_png=png.getvalue()
+        )
+        return text.strip()
+    except ApiError as error:
+        logger.warning("vision fallback failed code=%s", error.code)
+        return ""
