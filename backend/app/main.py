@@ -29,8 +29,9 @@ logger = logging.getLogger(__name__)
 
 # Room for the multipart framing around the file in the Content-Length check.
 MULTIPART_OVERHEAD = 64 * 1024
-# OCR is CPU-heavy; more parallel extractions only slow each other down.
-EXTRACT_CONCURRENCY = 2
+# One extraction with OCR peaks near 300 MiB (parser process plus Tesseract), so a second one
+# would not fit in a 512 MiB instance; on one shared vCPU it would not finish sooner either.
+EXTRACT_CONCURRENCY = 1
 FILE_NAME_MAX = 255
 
 
@@ -87,9 +88,10 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
 
     @app.post("/api/extract")
     async def extract(file: Annotated[UploadFile, File()]) -> ExtractResponse:
-        data = await read_pdf_upload(file, settings)
         file_name = (file.filename or "document.pdf")[:FILE_NAME_MAX]
+        # Read inside the slot: queued uploads wait in Starlette's temporary files, not in RAM.
         async with extract_slots:
+            data = await read_pdf_upload(file, settings)
             extraction = await asyncio.to_thread(
                 run_isolated,
                 read_pdf,

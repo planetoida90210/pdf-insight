@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     daily_llm_call_limit: int = 1000
     extraction_ttl_seconds: int = 900
     extract_timeout_seconds: float = 90
-    extract_memory_mb: int = 384
+    extract_memory_mb: int = 320
     analyze_timeout_seconds: float = 120
 
     @property
