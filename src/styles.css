@@ -234,7 +234,7 @@ summary {
 .table td {
   padding: var(--space-2) var(--space-3) var(--space-2) 0;
   border-bottom: var(--line);
-  text-align: left;
+  text-align: start;
   vertical-align: top;
 }
 

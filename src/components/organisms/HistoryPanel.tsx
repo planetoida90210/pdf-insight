@@ -29,7 +29,7 @@ export function HistoryPanel({ entries, onOpen, onDelete, onClear }: HistoryPane
               return (
                 <li key={entry.id} className="row">
                   <div>
-                    <p>{fileName}</p>
+                    <p dir="auto">{fileName}</p>
                     <p className="muted">
                       {DOCUMENT_TYPE_LABELS[type]}, {formatDateTime(entry.savedAt)}
                     </p>

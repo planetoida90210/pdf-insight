@@ -19,7 +19,9 @@ export function DataTable({ columns, rows }: DataTableProps) {
         {rows.map((row, rowIndex) => (
           <tr key={rowIndex}>
             {row.map((cell, cellIndex) => (
-              <td key={cellIndex}>{cell}</td>
+              <td key={cellIndex} dir="auto">
+                {cell}
+              </td>
             ))}
           </tr>
         ))}

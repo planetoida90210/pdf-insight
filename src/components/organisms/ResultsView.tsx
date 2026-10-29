@@ -32,7 +32,7 @@ export function ResultsView({ result, file, onReset }: ResultsViewProps) {
         items={DOCUMENT_FIELDS.map(({ label, value }) => ({ label, value: value(result) }))}
       />
       <Section title="Podsumowanie">
-        <p>{result.summary}</p>
+        <p dir="auto">{result.summary}</p>
       </Section>
       {LIST_SECTIONS.map(({ title, items, inline }) => (
         <Section key={title} title={title} empty={items(result).length === 0}>
