@@ -38,6 +38,7 @@ class OpenRouter:
         Every call takes one unit of the daily budget; DAILY_LIMIT once it is used up.
         """
         if not self._budget.hit():
+            logger.error("daily LLM call limit reached")
             raise ApiError(ErrorCode.DAILY_LIMIT)
         content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
         if image_png is not None:

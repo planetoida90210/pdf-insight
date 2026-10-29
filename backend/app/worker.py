@@ -31,11 +31,13 @@ def run_isolated[T](task: Callable[..., T], *args: Any, timeout: float, memory_m
     sender.close()
     try:
         if not receiver.poll(timeout):
+            logger.warning("extraction worker killed at the %ss deadline", timeout)
             raise ApiError(ErrorCode.TIMEOUT)
         ok, value = receiver.recv()
     except EOFError as error:
-        # Killed by the kernel or crashed in native code before it could answer.
-        logger.warning("extraction worker exited without a result")
+        # Killed by the kernel (exit code -9) or crashed in native code before it could answer.
+        child.join(1)
+        logger.warning("extraction worker exited without a result, exit code %s", child.exitcode)
         raise ApiError(ErrorCode.INVALID_PDF) from error
     finally:
         child.kill()
@@ -54,6 +56,7 @@ def _run(sender: Connection, memory_mb: int, task: Callable[..., Any], args: Any
     except ApiError as error:
         sender.send((False, error))
     except MemoryError:
+        logger.warning("extraction worker hit the %s MiB memory cap", memory_mb)
         sender.send((False, ApiError(ErrorCode.INVALID_PDF)))
     except Exception as error:
         logger.error("extraction worker failed: %s\n%s", type(error).__name__, error_frames(error))
@@ -64,7 +67,9 @@ def _limit_memory(limit: int) -> None:
     """Allocations past `limit` raise MemoryError; if the container runs out first, the kernel
     kills this child rather than the web process. Both are Linux-only, so local macOS runs go
     without them."""
-    with contextlib.suppress(ValueError, OSError):
+    try:
         resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+    except (ValueError, OSError):
+        logger.warning("extraction worker runs without a memory cap")
     with contextlib.suppress(OSError):
         Path("/proc/self/oom_score_adj").write_text("1000")

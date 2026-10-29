@@ -1,6 +1,7 @@
 import time
 from typing import cast
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx2 import Response
@@ -133,7 +134,7 @@ def test_missing_key_answers_503_but_extraction_cache_is_checked_first() -> None
     assert analyze(client).status_code == 503
 
 
-def test_daily_cap_counts_llm_calls() -> None:
+def test_daily_cap_counts_llm_calls(caplog: pytest.LogCaptureFixture) -> None:
     client, app = make_client(FakeLlm(lambda _: llm_answer(), daily_limit=1))
     assert analyze(client, "missing").status_code == 404
     seed(app, "a")
@@ -142,6 +143,7 @@ def test_daily_cap_counts_llm_calls() -> None:
     second = analyze(client, "b")
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "DAILY_LIMIT"
+    assert "daily LLM call limit reached" in caplog.text
 
 
 def test_rate_limit_per_client() -> None:
