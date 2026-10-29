@@ -26,6 +26,7 @@ RUN apt-get update \
         tesseract-ocr-pol \
         tesseract-ocr-eng \
         ca-certificates \
+        tini \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -39,4 +40,7 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "/app/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-server-header"]
+# tini as PID 1 passes SIGTERM on to uvicorn and reaps the Tesseract processes left behind
+# when an extraction worker is killed at its deadline.
+ENTRYPOINT ["tini", "--"]
+CMD ["sh", "-c", "exec /app/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-server-header"]
