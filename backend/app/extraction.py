@@ -14,7 +14,7 @@ from PIL import Image
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
 from app.injection import scan_injection
-from app.ocr import ocr_page, render_page
+from app.ocr import VisionFallback, ocr_page, render_page, vision_fallback
 from app.schema import AnalysisWarning, PageInfo
 
 logger = logging.getLogger("pdf_insight")
@@ -114,11 +114,17 @@ def _page_marker(page: int) -> str:
     return f"[Strona {page}]"
 
 
-def extract_pdf(data: bytes, settings: Settings) -> ExtractionResult:
+def extract_pdf(
+    data: bytes,
+    settings: Settings,
+    *,
+    vision: VisionFallback | None = None,
+) -> ExtractionResult:
     """Extract visible text, OCR sparse pages, assemble warnings and markers."""
     warnings: list[AnalysisWarning] = []
     page_results: list[PageResult] = []
     ocr_used = 0
+    vision_fn: VisionFallback = vision or vision_fallback
 
     # pdfplumber for char boxes; pdfium for rendering (and later OCR).
     with pdfplumber.open(BytesIO(data)) as plumber, pdfium.PdfDocument(data) as pdf:
@@ -175,6 +181,7 @@ def extract_pdf(data: bytes, settings: Settings) -> ExtractionResult:
                         lang=settings.ocr_lang,
                         min_confidence=settings.ocr_min_confidence,
                         vision_enabled=settings.vision_fallback,
+                        vision=vision_fn,
                     )
                     ocr_used += 1
                     text = ocr.text

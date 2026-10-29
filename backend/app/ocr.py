@@ -1,4 +1,4 @@
-"""Page rendering and Tesseract OCR. Vision-LLM fallback is a B3 hook."""
+"""Page rendering and Tesseract OCR, with optional vision-LLM fallback."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ VisionFallback = Callable[[Image.Image], OcrResult | None]
 
 
 def vision_fallback(_image: Image.Image) -> OcrResult | None:
-    """B3 replaces this (or passes a callable) with an LLM vision transcription."""
+    """No-op default; extract passes make_vision_fallback(transport) when enabled."""
     return None
 
 
