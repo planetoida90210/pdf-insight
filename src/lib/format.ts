@@ -1,3 +1,4 @@
+import type { OcrProgress } from './analysisMachine';
 import type { AnalysisResult, DocumentType } from './schema';
 
 const LOCALE = 'pl-PL';
@@ -35,6 +36,10 @@ export function formatDateTime(isoDateTime: string): string {
 
 export function formatSeconds(ms: number): string {
   return `${new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 }).format(ms / 1000)} s`;
+}
+
+export function formatOcrProgress({ done, total }: OcrProgress): string {
+  return `OCR ${done}/${total}`;
 }
 
 const languageNames = new Intl.DisplayNames([LOCALE], { type: 'language' });

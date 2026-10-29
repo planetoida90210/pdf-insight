@@ -11,11 +11,13 @@ import {
   type Run,
 } from './analysisMachine';
 import { AppError } from './errors';
+import { readScannedPages, type OcrPage } from './ocr';
 import { validatePdf } from './pdf';
 import { analysisResultSchema, type ExtractResponse } from './schema';
 
 vi.mock('../api/client', () => ({ extractText: vi.fn(), analyzeExtraction: vi.fn() }));
 vi.mock('./pdf', () => ({ validatePdf: vi.fn() }));
+vi.mock('./ocr', () => ({ readScannedPages: vi.fn() }));
 
 const file = new File(['%PDF-1.4'], 'umowa.pdf', { type: 'application/pdf' });
 const result = analysisResultSchema.parse(umowa);
@@ -30,9 +32,12 @@ const extraction = (extractionId: string): ExtractResponse => ({
 });
 const notFound = new AppError('EXTRACTION_NOT_FOUND');
 
+const ocrPages: OcrPage[] = [{ page: 11, text: 'Aneks nr 1', confidence: 91 }];
+
 const running: AnalysisState = {
   phase: 'running',
   startedAt: 1,
+  ocr: null,
   file,
   step: 2,
   extraction: extraction('e1'),
@@ -44,13 +49,16 @@ describe('analysisReducer', () => {
     expect(analysisReducer(IDLE, { type: 'start', run, startedAt: 5 })).toEqual({
       phase: 'running',
       startedAt: 5,
+      ocr: null,
       ...run,
     });
   });
 
   it('extracting clears the old extraction and analyzing stores the new one', () => {
     const extracting = analysisReducer(running, { type: 'extracting' });
-    expect(extracting).toMatchObject({ step: 1, extraction: null });
+    expect(extracting).toMatchObject({ step: 1, extraction: null, ocr: null });
+    const progress = { done: 2, total: 5 };
+    expect(analysisReducer(extracting, { type: 'ocr', progress })).toMatchObject({ ocr: progress });
     const analyzing = analysisReducer(extracting, {
       type: 'analyzing',
       extraction: extraction('e2'),
@@ -89,6 +97,7 @@ describe('runPipeline', () => {
   beforeEach(() => {
     actions.length = 0;
     vi.mocked(validatePdf).mockReset().mockResolvedValue();
+    vi.mocked(readScannedPages).mockReset().mockResolvedValue(ocrPages);
     vi.mocked(extractText).mockReset().mockResolvedValue(extraction('e1'));
     vi.mocked(analyzeExtraction).mockReset().mockResolvedValue(result);
   });
@@ -100,7 +109,20 @@ describe('runPipeline', () => {
     );
     expect(types()).toEqual(['start', 'extracting', 'analyzing', 'done']);
     expect(validatePdf).toHaveBeenCalledWith(file);
+    expect(extractText).toHaveBeenCalledWith(file, ocrPages, signal);
     expect(analyzeExtraction).toHaveBeenCalledWith('e1', signal);
+  });
+
+  it('reports the OCR progress and sends the file without the OCR text after an OCR failure', async () => {
+    vi.mocked(readScannedPages).mockImplementation(async (_, __, onProgress) => {
+      onProgress(1, 2);
+      throw new Error('worker failed to load');
+    });
+    const signal = new AbortController().signal;
+    await runPipeline({ file, step: 0, extraction: null }, signal, dispatch);
+    expect(actions).toContainEqual({ type: 'ocr', progress: { done: 1, total: 2 } });
+    expect(extractText).toHaveBeenCalledWith(file, [], signal);
+    expect(types().at(-1)).toBe('done');
   });
 
   it('an analysis retry does not upload the file again', async () => {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AppError, isErrorCode, retryAfterMessage, type ErrorCode } from '../lib/errors';
+import type { OcrPage } from '../lib/ocr';
 import {
   analysisResultSchema,
   extractResponseSchema,
@@ -78,9 +79,18 @@ async function request<T>(
   return parsed.data;
 }
 
-export function extractText(file: File, signal: AbortSignal): Promise<ExtractResponse> {
+// `ocr` holds the pages the browser has read. It goes as a file because the server limits plain
+// form fields to 1 MB.
+export function extractText(
+  file: File,
+  ocr: OcrPage[],
+  signal: AbortSignal,
+): Promise<ExtractResponse> {
   const body = new FormData();
   body.append('file', file);
+  if (ocr.length > 0) {
+    body.append('ocr', new Blob([JSON.stringify(ocr)], { type: 'application/json' }));
+  }
   return request('/api/extract', { method: 'POST', body }, extractResponseSchema, signal);
 }
 

@@ -46,6 +46,7 @@ export function App() {
           <ProgressPanel
             fileName={state.file.name}
             step={state.step}
+            ocr={state.ocr}
             startedAt={state.startedAt}
             onCancel={startOver}
           />
