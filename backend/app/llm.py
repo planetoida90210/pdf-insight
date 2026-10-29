@@ -62,8 +62,9 @@ class OpenRouter:
             raise _provider_error(408, type(error).__name__) from error
         except (httpx2.HTTPError, ValueError) as error:
             raise _provider_error(502, type(error).__name__) from error
+        failure = data.get("error") or {}
         # An upstream failure can also arrive in the body of an HTTP 200 response.
-        if failure := data.get("error"):
+        if failure or not response.is_success:
             error_type = (failure.get("metadata") or {}).get("error_type")
             message = str(failure.get("message"))[:200]
             raise _provider_error(
@@ -90,7 +91,8 @@ def create_llm(
 
 
 def _answer_text(data: dict[str, Any]) -> str:
-    choice = data["choices"][0]
+    """The first choice's text; "" when there is none, which callers treat as unusable."""
+    choice = (data.get("choices") or [{}])[0]
     usage = data.get("usage") or {}
     logger.info(
         "openrouter id=%s provider=%s finish=%s tokens=%s/%s",
@@ -100,7 +102,7 @@ def _answer_text(data: dict[str, Any]) -> str:
         usage.get("prompt_tokens"),
         usage.get("completion_tokens"),
     )
-    return choice["message"].get("content") or ""
+    return (choice.get("message") or {}).get("content") or ""
 
 
 def _provider_error(status: int, detail: str) -> ApiError:
