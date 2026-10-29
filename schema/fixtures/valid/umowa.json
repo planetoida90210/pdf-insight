@@ -55,8 +55,8 @@
   "meta": {
     "schemaVersion": "1.0",
     "analyzedAt": "2026-10-29T17:45:00Z",
-    "provider": "gemini",
-    "model": "gemini-flash",
+    "provider": "openrouter",
+    "model": "anthropic/claude-haiku-5.5",
     "ocrPages": [11],
     "hiddenTextPages": [4],
     "chunks": 1,

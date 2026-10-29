@@ -1,13 +1,17 @@
 import { z } from 'zod';
 
-// Lustro modeli Pydantic z backendu. Wspólne fikstury w schema/fixtures pilnują, żeby się nie rozjechały.
+// Mirror of the backend's Pydantic models; the shared cases in schema/fixtures keep them in step.
+
+// The CSP blocks eval. Without this, Zod probes new Function on its first parse and the browser
+// reports a CSP violation.
+z.config({ jitless: true });
 
 const nonEmpty = z.string().trim().min(1);
 const isoDate = z.iso.date();
 
-export const DOCUMENT_TYPES = ['faktura', 'umowa', 'oferta', 'raport', 'inne'] as const;
+const DOCUMENT_TYPES = ['faktura', 'umowa', 'oferta', 'raport', 'inne'] as const;
 
-export const warningSchema = z.object({
+const warningSchema = z.object({
   code: z.string().regex(/^[A-Z_]+$/),
   page: z.int().min(1).nullable(),
   message: nonEmpty,
@@ -19,14 +23,14 @@ export const analysisResultSchema = z.object({
     pages: z.int().min(1),
     language: z.string().regex(/^[a-z]{2}$/),
     type: z.enum(DOCUMENT_TYPES),
-    title: z.string().nullable(),
+    title: nonEmpty.nullable(),
     date: isoDate.nullable(),
   }),
   summary: nonEmpty,
   keyPoints: z.array(nonEmpty).min(3).max(7),
   entities: z.object({
-    organizations: z.array(z.string()),
-    people: z.array(z.string()),
+    organizations: z.array(nonEmpty),
+    people: z.array(nonEmpty),
   }),
   amounts: z.array(
     z.object({
@@ -36,13 +40,13 @@ export const analysisResultSchema = z.object({
     }),
   ),
   dates: z.array(z.object({ date: isoDate, context: nonEmpty })),
-  keywords: z.array(z.string()),
+  keywords: z.array(nonEmpty),
   warnings: z.array(warningSchema),
   meta: z.object({
     schemaVersion: z.literal('1.0'),
     analyzedAt: z.iso.datetime({ offset: true }),
-    provider: z.string(),
-    model: z.string(),
+    provider: nonEmpty,
+    model: nonEmpty,
     ocrPages: z.array(z.int().min(1)),
     hiddenTextPages: z.array(z.int().min(1)),
     chunks: z.int().min(1),
@@ -69,5 +73,4 @@ export const extractResponseSchema = z.object({
 
 export type AnalysisResult = z.infer<typeof analysisResultSchema>;
 export type ExtractResponse = z.infer<typeof extractResponseSchema>;
-export type AnalysisWarning = z.infer<typeof warningSchema>;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];

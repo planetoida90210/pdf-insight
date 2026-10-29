@@ -1,29 +1,30 @@
-// Kody z kopertą błędów backendu plus kody, które nadaje sam frontend (NETWORK, INVALID_RESULT, ABORTED).
+import { MAX_FILE_MB } from './config';
+
+// Codes from the backend's error envelope plus the frontend's own (NETWORK, INVALID_RESULT, ABORTED).
 const MESSAGES = {
-  FILE_TOO_LARGE: 'Plik jest większy niż 10 MB. Wybierz mniejszy plik.',
-  UNSUPPORTED_TYPE: 'To nie jest plik PDF. Wybierz plik w formacie PDF.',
-  INVALID_PDF: 'Nie udało się otworzyć pliku. PDF jest uszkodzony lub niepoprawny.',
-  ENCRYPTED_PDF: 'PDF jest zabezpieczony hasłem. Zdejmij zabezpieczenie i wgraj plik ponownie.',
-  TOO_MANY_PAGES: 'Dokument ma więcej stron, niż pozwala limit analizy.',
-  NO_TEXT: 'Nie udało się odczytać tekstu z dokumentu, także przez OCR.',
-  EXTRACTION_NOT_FOUND:
-    'Odczytany tekst wygasł na serwerze. Spróbuj ponownie, a plik zostanie wysłany jeszcze raz.',
-  RATE_LIMITED: 'Zbyt wiele zapytań w krótkim czasie. Odczekaj chwilę i spróbuj ponownie.',
-  DAILY_LIMIT: 'Wyczerpano dzienny limit analiz w wersji demo. Spróbuj ponownie jutro.',
-  AI_INVALID_RESPONSE: 'Model AI zwrócił niepoprawny wynik. Spróbuj ponownie.',
-  AI_UNAVAILABLE: 'Usługa AI jest chwilowo niedostępna. Spróbuj ponownie za chwilę.',
-  TIMEOUT: 'Przetwarzanie trwało zbyt długo i zostało przerwane. Spróbuj ponownie.',
-  INTERNAL: 'Wystąpił nieoczekiwany błąd serwera. Spróbuj ponownie.',
-  INVALID_REQUEST: 'Żądanie jest niepoprawne. Sprawdź dane i spróbuj ponownie.',
-  NOT_FOUND: 'Nie znaleziono żądanego zasobu.',
-  NETWORK: 'Brak połączenia z serwerem. Sprawdź internet i spróbuj ponownie.',
-  INVALID_RESULT: 'Serwer zwrócił wynik niezgodny ze schematem. Spróbuj ponownie.',
-  ABORTED: 'Analiza została anulowana.',
+  FILE_TOO_LARGE: `Plik ma ponad ${MAX_FILE_MB} MB.`,
+  UNSUPPORTED_TYPE: 'To nie jest plik PDF.',
+  INVALID_PDF: 'Plik PDF jest uszkodzony.',
+  ENCRYPTED_PDF: 'PDF jest chroniony hasłem.',
+  TOO_MANY_PAGES: 'Dokument ma za dużo stron.',
+  NO_TEXT: 'Nie udało się odczytać tekstu.',
+  EXTRACTION_NOT_FOUND: 'Odczytany tekst wygasł na serwerze.',
+  RATE_LIMITED: 'Za dużo zapytań, odczekaj chwilę.',
+  DAILY_LIMIT: 'Wyczerpano dzienny limit analiz.',
+  AI_INVALID_RESPONSE: 'AI zwróciło niepoprawny wynik.',
+  AI_UNAVAILABLE: 'Usługa AI jest chwilowo niedostępna.',
+  TIMEOUT: 'Analiza trwała zbyt długo.',
+  INTERNAL: 'Wystąpił błąd serwera.',
+  INVALID_REQUEST: 'Serwer odrzucił żądanie.',
+  NOT_FOUND: 'Serwer nie zna tego adresu.',
+  NETWORK: 'Brak połączenia z serwerem.',
+  INVALID_RESULT: 'Wynik jest niezgodny ze schematem.',
+  ABORTED: 'Analiza anulowana.',
 } as const;
 
 export type ErrorCode = keyof typeof MESSAGES;
 
-// Ponowienie nic nie zmieni, gdy problem leży w samym pliku albo w dziennym limicie.
+// A retry cannot help when the problem is the file itself or the daily limit.
 const FINAL_CODES: ReadonlySet<ErrorCode> = new Set([
   'FILE_TOO_LARGE',
   'UNSUPPORTED_TYPE',
@@ -36,6 +37,10 @@ const FINAL_CODES: ReadonlySet<ErrorCode> = new Set([
 
 export function isErrorCode(value: string): value is ErrorCode {
   return Object.hasOwn(MESSAGES, value);
+}
+
+export function retryAfterMessage(seconds: number): string {
+  return `Za dużo zapytań, spróbuj za ${seconds} s.`;
 }
 
 export class AppError extends Error {

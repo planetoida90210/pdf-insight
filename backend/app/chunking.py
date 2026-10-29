@@ -1,165 +1,59 @@
-"""Split long documents on page boundaries, merge per-chunk analyses (F-08)."""
+"""Long documents (F-08): split on page boundaries, merge the per-chunk analyses."""
 
-from __future__ import annotations
-
-import re
 from collections import Counter
-from collections.abc import Callable, Iterable, Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import cast
+from collections.abc import Callable, Hashable, Iterable
 
-from app.errors import ApiError
-from app.schema import Amount, DateEntry, DocumentType, Entities, LlmAnalysis, LlmDocument
-
-PAGE_BLOCK_RE = re.compile(
-    r"\[Strona\s+(\d+)\]\n?(.*?)(?=\n\n\[Strona\s+\d+\]|\Z)",
-    re.DOTALL,
-)
+from app.prompts import PAGE_SEPARATOR
+from app.schema import Entities, LlmAnalysis, LlmDocument
+from app.validation import dedupe
 
 
-def split_into_chunks(text: str, chunk_chars: int) -> list[str]:
-    """Pack page blocks into chunks of at most `chunk_chars` (one oversize page alone)."""
-    if chunk_chars < 1:
-        raise ValueError("chunk_chars must be >= 1")
-    stripped = text.strip()
-    if not stripped:
-        return []
-    if len(stripped) <= chunk_chars:
-        return [stripped]
-
-    pages = _page_blocks(stripped)
-    if not pages:
-        return [stripped[i : i + chunk_chars] for i in range(0, len(stripped), chunk_chars)]
-
+def split_into_chunks(pages: list[str], max_chars: int) -> list[str]:
+    """Packs whole pages into chunks of at most `max_chars`; a longer page is cut into pieces."""
     chunks: list[str] = []
-    current: list[str] = []
-    current_len = 0
-    for block in pages:
-        block_len = len(block)
-        sep = 2 if current else 0  # "\n\n" between blocks
-        if current and current_len + sep + block_len > chunk_chars:
-            chunks.append("\n\n".join(current))
-            current = [block]
-            current_len = block_len
-        else:
-            current.append(block)
-            current_len += sep + block_len
-    if current:
-        chunks.append("\n\n".join(current))
+    for page in pages:
+        for start in range(0, len(page), max_chars):
+            piece = page[start : start + max_chars]
+            if chunks and len(chunks[-1]) + len(PAGE_SEPARATOR) + len(piece) <= max_chars:
+                chunks[-1] += PAGE_SEPARATOR + piece
+            else:
+                chunks.append(piece)
     return chunks
 
 
-def merge_chunk_analyses(parts: list[LlmAnalysis]) -> LlmAnalysis:
-    """Dedupe entities/keywords/amounts/dates; document fields from first non-null / majority."""
-    if not parts:
-        raise ValueError("merge requires at least one chunk analysis")
-    if len(parts) == 1:
-        return parts[0]
-
-    orgs = _dedupe_ci(name for part in parts for name in part.entities.organizations)
-    people = _dedupe_ci(name for part in parts for name in part.entities.people)
-    keywords = _dedupe_ci(word for part in parts for word in part.keywords)
-
-    amounts: list[Amount] = []
-    seen_amounts: set[tuple[float, str]] = set()
-    for part in parts:
-        for amount in part.amounts:
-            key = (amount.value, amount.currency)
-            if key in seen_amounts:
-                continue
-            seen_amounts.add(key)
-            amounts.append(amount)
-
-    dates: list[DateEntry] = []
-    seen_dates: set[str] = set()
-    for part in parts:
-        for entry in part.dates:
-            if entry.date in seen_dates:
-                continue
-            seen_dates.add(entry.date)
-            dates.append(entry)
-
-    suspicious = _dedupe_ci(item for part in parts for item in part.suspicious_instructions)
-
-    languages = [part.document.language for part in parts if part.document.language]
-    types = [part.document.type for part in parts if part.document.type]
-    language = _majority(languages) or parts[0].document.language
-    majority_type = _majority(types)
-    doc_type: DocumentType = (
-        cast(DocumentType, majority_type) if majority_type else parts[0].document.type
-    )
-    title = next((part.document.title for part in parts if part.document.title), None)
-    doc_date = next((part.document.date for part in parts if part.document.date), None)
-
-    # Placeholder summary/keyPoints — replaced by the reduce call.
-    return LlmAnalysis(
-        document=LlmDocument(language=language, type=doc_type, title=title, date=doc_date),
-        summary=parts[0].summary,
-        key_points=list(parts[0].key_points),
-        entities=Entities(organizations=orgs, people=people),
-        amounts=amounts,
-        dates=dates,
-        keywords=keywords,
-        suspicious_instructions=suspicious,
+def merge_analyses(parts: list[LlmAnalysis]) -> LlmAnalysis:
+    """Unions the lists (first occurrence wins); summary and keyPoints come from a later call."""
+    documents = [part.document for part in parts]
+    return parts[0].model_copy(
+        update={
+            "document": LlmDocument(
+                language=_most_common(document.language for document in documents),
+                type=_most_common(document.type for document in documents),
+                title=next((d.title for d in documents if d.title), None),
+                date=next((d.date for d in documents if d.date), None),
+            ),
+            "entities": Entities(
+                organizations=dedupe(o for part in parts for o in part.entities.organizations),
+                people=dedupe(p for part in parts for p in part.entities.people),
+            ),
+            "amounts": _unique_by(
+                (a for part in parts for a in part.amounts), lambda a: (a.value, a.currency)
+            ),
+            "dates": _unique_by((d for part in parts for d in part.dates), lambda d: d.date),
+            "keywords": dedupe(k for part in parts for k in part.keywords),
+            "suspicious_instructions": dedupe(
+                s for part in parts for s in part.suspicious_instructions
+            ),
+        }
     )
 
 
-def run_bounded[T](
-    items: list[T],
-    worker: Callable[[T], LlmAnalysis],
-    *,
-    concurrency: int,
-) -> list[LlmAnalysis]:
-    """Run `worker` over items with bounded concurrency; first ApiError fails the batch."""
-    if not items:
-        return []
-    workers = max(1, concurrency)
-    if len(items) == 1 or workers == 1:
-        return [worker(item) for item in items]
-
-    results: list[LlmAnalysis | None] = [None] * len(items)
-    with ThreadPoolExecutor(max_workers=min(workers, len(items))) as pool:
-        futures = {pool.submit(worker, item): index for index, item in enumerate(items)}
-        try:
-            for future in as_completed(futures):
-                index = futures[future]
-                results[index] = future.result()
-        except ApiError:
-            for future in futures:
-                future.cancel()
-            raise
-    return [result for result in results if result is not None]
+def _most_common[T](values: Iterable[T]) -> T:
+    return Counter(values).most_common(1)[0][0]
 
 
-def _page_blocks(text: str) -> list[str]:
-    matches = list(PAGE_BLOCK_RE.finditer(text))
-    if not matches:
-        return []
-    blocks: list[str] = []
-    for match in matches:
-        page_no = match.group(1)
-        body = match.group(2).rstrip()
-        blocks.append(f"[Strona {page_no}]\n{body}".rstrip())
-    return blocks
-
-
-def _dedupe_ci(items: Iterable[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
+def _unique_by[T](items: Iterable[T], key: Callable[[T], Hashable]) -> list[T]:
+    first: dict[Hashable, T] = {}
     for item in items:
-        text = item.strip()
-        if not text:
-            continue
-        key = text.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(text)
-    return out
-
-
-def _majority(values: Sequence[str]) -> str | None:
-    if not values:
-        return None
-    counts = Counter(values)
-    return counts.most_common(1)[0][0]
+        first.setdefault(key(item), item)
+    return list(first.values())

@@ -1,9 +1,9 @@
+"""FastAPI app: routes, error envelope, CORS, request size guard, rate limits."""
+
 import asyncio
 import logging
-import time
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -15,102 +15,80 @@ from starlette.exceptions import HTTPException
 
 from app.analysis import analyze_extraction
 from app.cache import TtlCache
-from app.config import Settings, get_settings
+from app.config import Settings, configure_logging, error_frames, get_settings
 from app.errors import ApiError, ErrorCode
-from app.extraction import ExtractionResult, extract_pdf
-from app.llm import LlmTransport, create_transport, make_vision_fallback
-from app.ocr import VisionFallback
+from app.extraction import Extraction, read_pdf
+from app.llm import OpenRouter, create_llm
 from app.ratelimit import DailyCounter, SlidingWindowLimiter, client_ip
-from app.schema import AnalysisResult, AnalysisWarning, AnalyzeRequest, ExtractResponse, PageInfo
-from app.upload import open_pdf, read_pdf_upload
+from app.schema import AnalysisResult, AnalyzeRequest, ExtractResponse
+from app.upload import read_pdf_upload
+from app.worker import run_isolated
 
-logger = logging.getLogger("pdf_insight")
-if not logging.getLogger().handlers:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(levelname)s %(name)s %(message)s",
-    )
+configure_logging()
+logger = logging.getLogger(__name__)
 
-# Multipart framing around the file; anything bigger than file limit + this is rejected
-# before the body is parsed.
+# Room for the multipart framing around the file in the Content-Length check.
 MULTIPART_OVERHEAD = 64 * 1024
-EXTRACT_CONCURRENCY = 2
+# One extraction with OCR peaks near 300 MiB (parser process plus Tesseract), so a second one
+# would not fit in a 512 MiB instance; on one shared vCPU it would not finish sooner either.
+EXTRACT_CONCURRENCY = 1
+FILE_NAME_MAX = 255
+# The API answers JSON only: nothing in a response may be rendered, framed, sniffed or cached.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+    "Strict-Transport-Security": "max-age=31536000",
+}
 
 
-@dataclass(slots=True)
-class CachedExtraction:
-    """Server-side payload keyed by extractionId; analyze consumes `text`."""
-
-    file_name: str
-    pages: int
-    text: str
-    chars: int
-    page_info: list[PageInfo]
-    warnings: list[AnalysisWarning]
-    expires_at: datetime
-
-
-def error_response(error: ApiError) -> JSONResponse:
-    return JSONResponse(
-        status_code=error.status,
-        content={"error": {"code": error.code, "message": error.message}},
-        headers=error.headers,
-    )
-
-
-def create_app(
-    settings: Settings,
-    *,
-    llm_transport: LlmTransport | None = None,
-    vision: VisionFallback | None = None,
-) -> FastAPI:
+def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
     app = FastAPI(title="PDF Insight API", docs_url=None, redoc_url=None, openapi_url=None)
-    cache: TtlCache[CachedExtraction] = TtlCache(ttl=float(settings.extraction_ttl_seconds))
+    budget = DailyCounter(limit=settings.daily_llm_call_limit)
+    llm = llm or create_llm(settings, budget)
+    cache: TtlCache[Extraction] = TtlCache(ttl=settings.extraction_ttl_seconds)
     limiter = SlidingWindowLimiter(limit=settings.rate_limit_per_minute)
-    daily = DailyCounter(limit=settings.daily_analysis_limit)
-    extract_lock = asyncio.Semaphore(EXTRACT_CONCURRENCY)
-    app.state.settings = settings
+    extract_slots = asyncio.Semaphore(EXTRACT_CONCURRENCY)
+    analyzing: set[str] = set()
     app.state.cache = cache
-    app.state.limiter = limiter
-    app.state.daily = daily
-    app.state.llm_transport = llm_transport
-    app.state.vision = vision
 
     @app.exception_handler(ApiError)
-    async def handle_api_error(_: Request, error: ApiError) -> JSONResponse:
+    async def api_error(_: Request, error: ApiError) -> JSONResponse:
         return error_response(error)
 
     @app.exception_handler(RequestValidationError)
-    async def handle_validation_error(_: Request, __: RequestValidationError) -> JSONResponse:
+    async def invalid_request(_: Request, __: RequestValidationError) -> JSONResponse:
         return error_response(ApiError(ErrorCode.INVALID_REQUEST))
 
     @app.exception_handler(HTTPException)
-    async def handle_http_error(_: Request, error: HTTPException) -> JSONResponse:
+    async def http_error(_: Request, error: HTTPException) -> JSONResponse:
         code = ErrorCode.NOT_FOUND if error.status_code == 404 else ErrorCode.INVALID_REQUEST
         return error_response(ApiError(code))
 
-    # Registered before CORS so CORS wraps it: even 413/500 responses carry CORS headers
-    # and the browser can show the Polish message instead of a generic network error.
+    # Added before CORS, so CORS wraps it and 413/429/500 responses still carry CORS headers:
+    # the browser can then show the Polish message instead of a network error.
     @app.middleware("http")
     async def guard(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        length = request.headers.get("content-length")
-        if (
-            length
-            and length.isdigit()
-            and int(length) > settings.max_file_bytes + MULTIPART_OVERHEAD
-        ):
-            return error_response(
-                ApiError(
-                    ErrorCode.FILE_TOO_LARGE,
-                    f"Plik jest za duży. Maksymalny rozmiar to {settings.max_file_mb} MB.",
-                )
-            )
+        response = await _guarded(request, call_next)
+        response.headers.update(SECURITY_HEADERS)
+        return response
+
+    async def _guarded(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        # Both checks run before FastAPI reads the body, so a rejected upload is never parsed.
+        if request.method == "POST":
+            rejected = _body_size_error(request, settings) or _rate_limit_error(request, limiter)
+            if rejected:
+                return error_response(rejected)
         try:
             return await call_next(request)
         except Exception as error:
-            logger.error("unhandled %s on %s", type(error).__name__, request.url.path)
+            name, path = type(error).__name__, request.url.path
+            logger.error("unhandled %s on %s\n%s", name, path, error_frames(error))
             return error_response(ApiError(ErrorCode.INTERNAL))
 
     app.add_middleware(
@@ -121,139 +99,86 @@ def create_app(
         expose_headers=["Retry-After"],
     )
 
-    def resolve_transport() -> LlmTransport:
-        existing = app.state.llm_transport
-        if existing is not None:
-            return existing  # type: ignore[no-any-return]
-        return create_transport(settings)
-
-    def resolve_vision() -> VisionFallback | None:
-        if app.state.vision is not None:
-            return app.state.vision  # type: ignore[no-any-return]
-        if not settings.vision_fallback:
-            return None
-        try:
-            return make_vision_fallback(resolve_transport())
-        except ApiError:
-            # No API key yet — OCR still runs; vision stays a no-op.
-            return None
-
     @app.get("/api/health")
     async def health() -> dict[str, str]:
-        return {"status": "ok", "provider": settings.llm_provider}
+        return {"status": "ok"}
 
     @app.post("/api/extract")
-    async def extract(request: Request, file: Annotated[UploadFile, File()]) -> ExtractResponse:
-        retry_after = limiter.hit(client_ip(request))
-        if retry_after is not None:
-            raise ApiError(ErrorCode.RATE_LIMITED, headers={"Retry-After": str(retry_after)})
-
-        data = await read_pdf_upload(file, settings.max_file_bytes)
-        # Validate open/encryption/page count before the heavier extraction work.
-        pdf = open_pdf(data, settings.max_pages)
-        pdf.close()
-
-        vision_fn = resolve_vision()
-        started = datetime.now(UTC)
-        deadline = time.monotonic() + settings.extract_timeout_seconds
-
-        async with extract_lock:
-            try:
-                result: ExtractionResult = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        extract_pdf,
-                        data,
-                        settings,
-                        vision=vision_fn,
-                        deadline=deadline,
-                    ),
-                    timeout=settings.extract_timeout_seconds,
-                )
-            except TimeoutError as error:
-                logger.info(
-                    "extract timeout file_bytes=%s budget_s=%s",
-                    len(data),
-                    settings.extract_timeout_seconds,
-                )
-                raise ApiError(ErrorCode.TIMEOUT) from error
-
+    async def extract(file: Annotated[UploadFile, File()]) -> ExtractResponse:
+        file_name = (file.filename or "document.pdf")[:FILE_NAME_MAX]
+        # Read inside the slot: queued uploads wait in Starlette's temporary files, not in RAM.
+        async with extract_slots:
+            data = await read_pdf_upload(file, settings)
+            extraction = await asyncio.to_thread(
+                run_isolated,
+                read_pdf,
+                data,
+                file_name,
+                settings,
+                budget,
+                timeout=settings.extract_timeout_seconds,
+                memory_mb=settings.extract_memory_mb,
+            )
         extraction_id = str(uuid.uuid4())
-        expires_at = datetime.now(UTC) + timedelta(seconds=settings.extraction_ttl_seconds)
-        file_name = file.filename or "document.pdf"
-        cache.set(
-            extraction_id,
-            CachedExtraction(
-                file_name=file_name,
-                pages=result.pages,
-                text=result.text,
-                chars=result.chars,
-                page_info=result.page_info,
-                warnings=result.warnings,
-                expires_at=expires_at,
-            ),
-        )
-        elapsed_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
-        warning_codes = sorted({w.code for w in result.warnings})
-        logger.info(
-            "extract id=%s pages=%s chars=%s file_bytes=%s ms=%s warnings=%s",
-            extraction_id,
-            result.pages,
-            result.chars,
-            len(data),
-            elapsed_ms,
-            warning_codes,
-        )
+        cache.set(extraction_id, extraction)
         return ExtractResponse(
             extraction_id=extraction_id,
             file_name=file_name,
-            pages=result.pages,
-            chars=result.chars,
-            page_info=result.page_info,
-            warnings=result.warnings,
-            expires_at=expires_at,
+            pages=len(extraction.page_info),
+            chars=sum(info.chars for info in extraction.page_info),
+            page_info=extraction.page_info,
+            warnings=extraction.warnings,
+            expires_at=datetime.now(UTC) + timedelta(seconds=settings.extraction_ttl_seconds),
         )
 
     @app.post("/api/analyze")
-    async def analyze(request: Request, body: AnalyzeRequest) -> AnalysisResult:
-        retry_after = limiter.hit(client_ip(request))
-        if retry_after is not None:
-            raise ApiError(ErrorCode.RATE_LIMITED, headers={"Retry-After": str(retry_after)})
-        if not daily.hit():
-            raise ApiError(ErrorCode.DAILY_LIMIT)
-
-        cached = cache.get(body.extraction_id)
-        if cached is None:
+    async def analyze(body: AnalyzeRequest) -> AnalysisResult:
+        extraction_id = body.extraction_id
+        extraction = cache.get(extraction_id)
+        # An id under analysis is taken: a parallel request for it would pay for a second one.
+        if extraction is None or extraction_id in analyzing:
             raise ApiError(ErrorCode.EXTRACTION_NOT_FOUND)
-
-        transport = resolve_transport()
-        model = settings.resolved_model
+        if llm is None:
+            raise ApiError(ErrorCode.AI_UNAVAILABLE)
+        analyzing.add(extraction_id)
         try:
-            return await asyncio.wait_for(
-                asyncio.to_thread(
-                    analyze_extraction,
-                    transport=transport,
-                    provider=settings.llm_provider,
-                    model=model,
-                    file_name=cached.file_name,
-                    pages=cached.pages,
-                    text=cached.text,
-                    page_info=cached.page_info,
-                    extract_warnings=cached.warnings,
-                    chunk_chars=settings.chunk_chars,
-                    chunk_concurrency=settings.chunk_concurrency,
-                ),
+            result = await asyncio.wait_for(
+                asyncio.to_thread(analyze_extraction, llm, extraction, settings),
                 timeout=settings.analyze_timeout_seconds,
             )
         except TimeoutError as error:
-            logger.info(
-                "analyze timeout chars=%s pages=%s budget_s=%s",
-                cached.chars,
-                cached.pages,
-                settings.analyze_timeout_seconds,
-            )
             raise ApiError(ErrorCode.TIMEOUT) from error
+        finally:
+            analyzing.discard(extraction_id)
+        # One analysis per upload; after a failure the client may retry with the same id.
+        cache.delete(extraction_id)
+        return result
 
     return app
+
+
+def error_response(error: ApiError) -> JSONResponse:
+    return JSONResponse(
+        status_code=error.status,
+        content={"error": {"code": error.code, "message": error.message}},
+        headers=error.headers,
+    )
+
+
+def _body_size_error(request: Request, settings: Settings) -> ApiError | None:
+    """POST bodies must declare their size, so the server never reads past the limit."""
+    length = request.headers.get("content-length", "")
+    if not length.isdigit():
+        return ApiError(ErrorCode.INVALID_REQUEST)
+    if int(length) > settings.max_file_bytes + MULTIPART_OVERHEAD:
+        return ApiError(ErrorCode.FILE_TOO_LARGE, max_mb=settings.max_file_mb)
+    return None
+
+
+def _rate_limit_error(request: Request, limiter: SlidingWindowLimiter) -> ApiError | None:
+    if retry_after := limiter.hit(client_ip(request)):
+        return ApiError(ErrorCode.RATE_LIMITED, headers={"Retry-After": str(retry_after)})
+    return None
 
 
 app = create_app(get_settings())

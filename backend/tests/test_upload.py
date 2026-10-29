@@ -4,6 +4,7 @@ import pytest
 from fastapi import UploadFile
 from starlette.datastructures import Headers
 
+from app.config import Settings
 from app.errors import ApiError, ErrorCode
 from app.upload import open_pdf, read_pdf_upload
 from tests.pdfs import text_pdf
@@ -18,7 +19,7 @@ def upload(data: bytes, content_type: str = "application/pdf") -> UploadFile:
 
 
 async def read(data: bytes, content_type: str = "application/pdf") -> bytes:
-    return await read_pdf_upload(upload(data, content_type), max_bytes=10 * MB)
+    return await read_pdf_upload(upload(data, content_type), Settings(max_file_mb=10))
 
 
 def assert_code(error: pytest.ExceptionInfo[ApiError], code: ErrorCode) -> None:
@@ -30,10 +31,9 @@ async def test_accepts_pdf() -> None:
     assert await read(data) == data
 
 
-async def test_rejects_wrong_content_type() -> None:
-    with pytest.raises(ApiError) as error:
-        await read(text_pdf("x"), "text/plain")
-    assert_code(error, ErrorCode.UNSUPPORTED_TYPE)
+async def test_content_type_is_not_trusted() -> None:
+    data = text_pdf("x")
+    assert await read(data, "application/octet-stream") == data
 
 
 async def test_rejects_not_a_pdf() -> None:

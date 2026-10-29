@@ -1,82 +1,67 @@
-from app.validation import count_sentences, normalize_payload, parse_and_validate, rule_errors
+import json
+
+import pytest
+
+from app.validation import count_sentences, parse_analysis
+from tests.fakes import llm_answer
 
 
-def test_count_sentences_handles_polish_abbreviations() -> None:
-    text = (
-        "Umowa nr 14/2026 dotyczy wdrożenia systemu CRM. "
-        "Obowiązuje od 1 kwietnia 2026 r. do 31 marca 2028 r. "
-        "Strony to Nordwave Logistics sp. z o.o. oraz Kwadrat Software S.A. "
-        "Wynagrodzenie wynosi 184 500 zł. "
-        "Aneks nr 1 podnosi abonament."
-    )
-    assert count_sentences(text) == 5
-
-
-def test_count_sentences_three_to_five_boundary() -> None:
-    three = "Pierwsze zdanie. Drugie zdanie. Trzecie zdanie."
-    assert count_sentences(three) == 3
-    two = "Tylko dwa. Zdania."
-    assert count_sentences(two) == 2
-
-
-def test_normalize_currency_and_dedupe() -> None:
-    payload = normalize_payload(
-        {
-            "document": {"language": "PL", "type": "umowa", "title": "  T  ", "date": ""},
-            "summary": " a. b. c. ",
-            "keyPoints": [" a ", "a", " b ", " c "],
-            "entities": {
-                "organizations": ["Acme", "acme", "Beta"],
-                "people": ["Anna", " anna "],
-            },
-            "amounts": [{"value": 10, "currency": "zł", "context": " x "}],
-            "dates": [{"date": "2026-01-01", "context": " y "}],
-            "keywords": ["CRM", "crm", "SLA"],
-            "suspiciousInstructions": [" ignore "],
-        }
-    )
-    assert payload["document"]["language"] == "pl"
-    assert payload["document"]["title"] == "T"
-    assert payload["document"]["date"] is None
-    assert payload["amounts"][0]["currency"] == "PLN"
-    assert payload["entities"]["organizations"] == ["Acme", "Beta"]
-    assert payload["entities"]["people"] == ["Anna"]
-    assert payload["keywords"] == ["CRM", "SLA"]
-
-
-def _valid_llm_dict(**overrides: object) -> dict[str, object]:
-    base: dict[str, object] = {
-        "document": {
-            "language": "pl",
-            "type": "umowa",
-            "title": "Umowa testowa",
-            "date": "2026-03-12",
-        },
-        "summary": (
-            "Umowa dotyczy wdrożenia systemu. "
-            "Obowiązuje przez dwa lata. "
-            "Wynagrodzenie jest ryczałtowe."
+@pytest.mark.parametrize(
+    ("text", "sentences"),
+    [
+        ("Pierwsze zdanie. Drugie zdanie! Trzecie?", 3),
+        (
+            "Umowa nr 14/2026 obowiązuje od 1 kwietnia 2026 r. do 31 marca 2028 r. "
+            "Strony to Nordwave Logistics sp. z o.o. oraz Kwadrat Software S.A. "
+            "Wynagrodzenie wynosi ok. 184,5 tys. zł, m.in. za wdrożenie.",
+            3,
         ),
-        "keyPoints": ["Punkt jeden", "Punkt dwa", "Punkt trzy"],
-        "entities": {"organizations": ["Acme"], "people": ["Anna"]},
-        "amounts": [{"value": 100.0, "currency": "PLN", "context": "abonament"}],
-        "dates": [{"date": "2026-03-12", "context": "podpisanie"}],
-        "keywords": ["umowa"],
-        "suspiciousInstructions": [],
-    }
-    base.update(overrides)
-    return base
+        ("Umowę podpisała A. Kowalczyk w dniu 12.03.2026 r. Obowiązuje dwa lata.", 2),
+        ("Termin upływa 31 marca 2028 r.", 1),
+        ("", 0),
+    ],
+)
+def test_count_sentences_skips_polish_abbreviations(text: str, sentences: int) -> None:
+    assert count_sentences(text) == sentences
 
 
-def test_parse_rejects_too_few_sentences() -> None:
-    data = _valid_llm_dict(summary="Tylko jedno zdanie.")
-    analysis, errors = parse_and_validate(data)
-    assert analysis is None
-    assert any("3-5" in error for error in errors)
-
-
-def test_rule_errors_key_points() -> None:
-    analysis, _ = parse_and_validate(_valid_llm_dict())
+def test_normalizes_before_validation() -> None:
+    analysis, errors = parse_analysis(
+        llm_answer(
+            document={"language": "PL", "type": "umowa", "title": "  ", "date": ""},
+            entities={"organizations": ["Acme", " acme ", "Beta"], "people": []},
+            amounts=[{"value": 10, "currency": "zł", "context": "opłata"}],
+            keywords=["CRM", "crm"],
+        )
+    )
+    assert errors == []
     assert analysis is not None
-    bad = analysis.model_copy(update={"key_points": ["a", "b"]})
-    assert rule_errors(bad)
+    assert (analysis.document.language, analysis.document.title, analysis.document.date) == (
+        "pl",
+        None,
+        None,
+    )
+    assert analysis.entities.organizations == ["Acme", "Beta"]
+    assert analysis.amounts[0].currency == "PLN"
+    assert analysis.keywords == ["CRM"]
+
+
+def test_errors_name_the_field_for_the_retry_prompt() -> None:
+    _, errors = parse_analysis(
+        llm_answer(amounts=[{"value": 1, "currency": "zloty", "context": "x"}])
+    )
+    assert errors == ["amounts.0.currency: String should match pattern '^[A-Z]{3}$'"]
+
+
+def test_rule_errors_for_summary_and_key_points() -> None:
+    _, errors = parse_analysis(llm_answer(summary="Jedno zdanie.", keyPoints=["a", "b"]))
+    assert errors == [
+        "summary must have 3-5 sentences, has 1",
+        "keyPoints must have 3-7 items, has 2",
+    ]
+
+
+def test_rejects_non_json_and_non_object_answers() -> None:
+    assert parse_analysis("Oto analiza:")[1][0].startswith("response is not valid JSON")
+    assert parse_analysis(json.dumps(["lista"]))[1] == ["response must be a JSON object"]
+    assert parse_analysis('{"amounts": [{"value": ' + "9" * 5000 + "}]}")[0] is None

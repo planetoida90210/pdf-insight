@@ -1,3 +1,5 @@
+"""In-memory store for extractions between /api/extract and /api/analyze."""
+
 import time
 from collections.abc import Callable
 
@@ -30,9 +32,8 @@ class TtlCache[V]:
             return None
         return value
 
-    def __len__(self) -> int:
-        self._evict_expired()
-        return len(self._items)
+    def delete(self, key: str) -> None:
+        self._items.pop(key, None)
 
     def _evict_expired(self) -> None:
         now = self.clock()

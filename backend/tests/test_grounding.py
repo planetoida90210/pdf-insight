@@ -1,67 +1,57 @@
-from app.grounding import collect_dates, collect_numbers, ground_analysis, parse_number_token
-from app.schema import Amount, DateEntry, Entities, LlmAnalysis, LlmDocument
+import json
+
+from app.grounding import dates_in, ground_analysis, numbers_in
+from app.schema import LlmAnalysis
+from tests.fakes import llm_answer
 
 
-def test_parse_polish_and_english_numbers() -> None:
-    assert parse_number_token("184 500,00") == 184500.0
-    assert parse_number_token("12\u00a0300") == 12300.0
-    assert parse_number_token("2 150") == 2150.0
-    assert parse_number_token("1,234.56") == 1234.56
-    assert parse_number_token("99.5") == 99.5
+def test_reads_polish_and_english_number_formats() -> None:
+    text = "184 500,00 zł; 12\u00a0300 PLN; 2 150 EUR; 1.234,56; 1,234.56; 890 USD; 99,5%"
+    assert {184500.0, 12300.0, 2150.0, 1234.56, 890.0, 99.5} <= numbers_in(text)
 
 
-def test_collect_numbers_from_source() -> None:
-    text = "Wynagrodzenie 184 500,00 zł oraz abonament 12 300 PLN. Aneks: 13 100."
-    numbers = collect_numbers(text)
-    assert 184500.0 in numbers
-    assert 12300.0 in numbers
-    assert 13100.0 in numbers
+def test_line_break_can_split_one_number_or_separate_two() -> None:
+    text = "abonament w wysokości 13\n100,00 PLN, użytkownicy: 120\n135"
+    assert {13100.0, 120.0, 135.0} <= numbers_in(text)
 
 
-def test_collect_polish_and_iso_dates() -> None:
-    text = "Umowa z 12.03.2026, start 1 kwietnia 2026 r., ISO 2027-04-01, March 15, 2026."
-    dates = collect_dates(text)
-    assert "2026-03-12" in dates
-    assert "2026-04-01" in dates
-    assert "2027-04-01" in dates
-    assert "2026-03-15" in dates
-
-
-def _analysis(**kwargs: object) -> LlmAnalysis:
-    base = LlmAnalysis(
-        document=LlmDocument(language="pl", type="umowa", title="T", date="2026-03-12"),
-        summary="Pierwsze zdanie. Drugie zdanie. Trzecie zdanie.",
-        key_points=["a", "b", "c"],
-        entities=Entities(organizations=["Acme"], people=["Anna"]),
-        amounts=[
-            Amount(value=184500.0, currency="PLN", context="wdrożenie"),
-            Amount(value=999_999.0, currency="PLN", context="fałszywa kwota"),
-        ],
-        dates=[
-            DateEntry(date="2026-04-01", context="start"),
-            DateEntry(date="2099-01-01", context="fikcja"),
-        ],
-        keywords=["crm"],
-        suspicious_instructions=[],
+def test_reads_polish_english_and_iso_dates() -> None:
+    text = (
+        "zawarta 12.03.2026 r., start 1 kwietnia 2026 r., wtorek, 24 lutego 2026 r., "
+        "ISO 2027-04-01, March 15, 2026, 31 December 2028, bad 31.02.2026"
     )
-    return base.model_copy(update=kwargs) if kwargs else base
+    assert dates_in(text) == {
+        "2026-03-12",
+        "2026-04-01",
+        "2026-02-24",
+        "2027-04-01",
+        "2026-03-15",
+        "2028-12-31",
+    }
 
 
-def test_grounding_drops_ungrounded_and_nulls_date() -> None:
-    source = "Umowa z dnia 12.03.2026. Wynagrodzenie 184 500,00 zł. Start 1 kwietnia 2026 r."
-    grounded, warnings = ground_analysis(_analysis(), source)
-    assert len(grounded.amounts) == 1
-    assert grounded.amounts[0].value == 184500.0
-    assert len(grounded.dates) == 1
-    assert grounded.dates[0].date == "2026-04-01"
-    assert grounded.document.date == "2026-03-12"
-    assert any(w.code == "UNGROUNDED_REMOVED" for w in warnings)
+def test_skips_month_names_that_match_only_through_case_folding() -> None:
+    assert dates_in("1 \u017ftycznia 2024, 2 lutego 2024") == {"2024-02-02"}
 
-    # Ungrounded document.date → null
-    bad_date = _analysis(
-        document=LlmDocument(language="pl", type="umowa", title="T", date="2099-12-31"),
-        amounts=[Amount(value=184500.0, currency="PLN", context="ok")],
-        dates=[DateEntry(date="2026-04-01", context="start")],
+
+def test_drops_ungrounded_values_and_counts_them() -> None:
+    analysis = LlmAnalysis.model_validate(
+        json.loads(
+            llm_answer(
+                document={"language": "pl", "type": "umowa", "title": None, "date": "2099-12-31"},
+                amounts=[
+                    {"value": 184500, "currency": "PLN", "context": "wdrożenie"},
+                    {"value": 1, "currency": "PLN", "context": "wstrzyknięta kwota"},
+                ],
+                dates=[
+                    {"date": "2026-04-01", "context": "start"},
+                    {"date": "2099-01-01", "context": "fikcja"},
+                ],
+            )
+        )
     )
-    grounded2, _ = ground_analysis(bad_date, source)
-    assert grounded2.document.date is None
+    grounded, removed = ground_analysis(analysis, "Wynagrodzenie 184 500,00 zł od 01.04.2026.")
+    assert [a.value for a in grounded.amounts] == [184500]
+    assert [d.date for d in grounded.dates] == ["2026-04-01"]
+    assert grounded.document.date is None
+    assert removed == 3

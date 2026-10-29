@@ -1,158 +1,103 @@
-"""Deterministic normalization and rule checks for LLM analysis output."""
+"""Turns the model's JSON text into a validated LlmAnalysis, or a list of errors for the retry."""
 
-from __future__ import annotations
-
+import json
 import re
+from collections.abc import Iterable
 from typing import Any
 
 from pydantic import ValidationError
 
 from app.schema import LlmAnalysis
 
-# Company forms and common Polish abbrevs. Dots are removed unless the match
-# sits at a sentence boundary (whitespace + capital letter, or end of text).
-_ABBREV = re.compile(
-    r"\bsp\.\s*z\s*o\.\s*o\.|\bs\.\s*a\.|\bm\.\s*in\.|\bp\.\s*p\.|"
-    r"\b(?:r|nr|ul|al|pl|św|sw|dr|mgr|prof|tel|godz|str|poz|pkt|art|ust|"
-    r"tzn|tzw|np|itd|itp|cd|ww|tj|pt|ds|wg)\.",
-    re.IGNORECASE | re.UNICODE,
+SUMMARY_SENTENCES = (3, 5)
+KEY_POINTS = (3, 7)
+
+# Dots inside these abbreviations do not end a sentence unless a new sentence starts after them.
+ABBREVIATION_RE = re.compile(
+    r"(?i:\bsp\.\s*z\s*o\.\s*o\.|\bs\.\s*a\.|\bm\.\s*in\.|\b(?:r|nr|ul|al|pl|św|dr|mgr|prof|tel|"
+    r"godz|str|poz|pkt|art|ust|tzn|tzw|np|itd|itp|tj|ds|wg|ok|tys|mln|mld|zob|por|lit|dz)\.)"
 )
-_SENTENCE_BOUNDARY_AHEAD = re.compile(r"\s+[\"„''(A-ZĄĆĘŁŃÓŚŹŻ]|\s*$")
-_SENTENCE_SPLIT = re.compile(r"[.!?…]+(?:\s+|$)")
+SENTENCE_START_RE = re.compile(r"\s+[\"„(A-ZĄĆĘŁŃÓŚŹŻ]|\s*$")
+# A single capital letter with a dot is an initial ("A. Kowalczyk"), never a sentence end.
+INITIAL_RE = re.compile(r"\b([A-ZĄĆĘŁŃÓŚŹŻ])\.")
+SENTENCE_END_RE = re.compile(r"[.!?…]+(?:\s+|$)")
 
-_CURRENCY_MAP = {
-    "zł": "PLN",
-    "zl": "PLN",
-    "pln": "PLN",
-    "€": "EUR",
-    "eur": "EUR",
-    "$": "USD",
-    "usd": "USD",
-    "£": "GBP",
-    "gbp": "GBP",
-}
+CURRENCIES = {"zł": "PLN", "zl": "PLN", "€": "EUR", "$": "USD", "£": "GBP"}
 
 
-def _replace_abbrev(match: re.Match[str]) -> str:
-    body = match.group(0).replace(".", "")
-    ahead = match.string[match.end() :]
-    if _SENTENCE_BOUNDARY_AHEAD.match(ahead):
-        return body + "."
-    return body
-
-
-def count_sentences(text: str) -> int:
-    """Count sentences; Polish abbreviations like „r.” / „sp. z o.o.” do not end a sentence."""
-    stripped = text.strip()
-    if not stripped:
-        return 0
-    protected = _ABBREV.sub(_replace_abbrev, stripped)
-    parts = [part.strip() for part in _SENTENCE_SPLIT.split(protected) if part.strip()]
-    return len(parts) if parts else 1
-
-
-def _normalize_currency(raw: str) -> str:
-    key = raw.strip().lower().replace(" ", "")
-    mapped = _CURRENCY_MAP.get(key)
-    if mapped:
-        return mapped
-    return raw.strip().upper()
-
-
-def _dedupe_preserve(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for item in items:
-        trimmed = item.strip()
-        if not trimmed:
-            continue
-        key = trimmed.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(trimmed)
-    return out
-
-
-def normalize_payload(data: dict[str, Any]) -> dict[str, Any]:
-    """Trim, dedupe, map zł→PLN, uppercase currencies — before Pydantic validation."""
-    payload = dict(data)
-    document = dict(payload.get("document") or {})
-    if isinstance(document.get("title"), str):
-        title = document["title"].strip()
-        document["title"] = title or None
-    if isinstance(document.get("type"), str):
-        document["type"] = document["type"].strip()
-    if isinstance(document.get("language"), str):
-        document["language"] = document["language"].strip().lower()
-    if isinstance(document.get("date"), str):
-        document["date"] = document["date"].strip() or None
-    payload["document"] = document
-
-    if isinstance(payload.get("summary"), str):
-        payload["summary"] = payload["summary"].strip()
-
-    for list_key in ("keyPoints", "key_points"):
-        if list_key in payload and isinstance(payload[list_key], list):
-            payload[list_key] = [
-                str(item).strip() for item in payload[list_key] if str(item).strip()
-            ]
-
-    entities = dict(payload.get("entities") or {})
-    for key in ("organizations", "people"):
-        if isinstance(entities.get(key), list):
-            entities[key] = _dedupe_preserve([str(item) for item in entities[key]])
-    payload["entities"] = entities
-
-    amounts: list[dict[str, Any]] = []
-    for item in payload.get("amounts") or []:
-        if not isinstance(item, dict):
-            continue
-        row = dict(item)
-        if isinstance(row.get("currency"), str):
-            row["currency"] = _normalize_currency(row["currency"])
-        if isinstance(row.get("context"), str):
-            row["context"] = row["context"].strip()
-        amounts.append(row)
-    payload["amounts"] = amounts
-
-    dates: list[dict[str, Any]] = []
-    for item in payload.get("dates") or []:
-        if not isinstance(item, dict):
-            continue
-        row = dict(item)
-        if isinstance(row.get("context"), str):
-            row["context"] = row["context"].strip()
-        if isinstance(row.get("date"), str):
-            row["date"] = row["date"].strip()
-        dates.append(row)
-    payload["dates"] = dates
-
-    for list_key in ("keywords", "suspiciousInstructions", "suspicious_instructions"):
-        if list_key in payload and isinstance(payload[list_key], list):
-            payload[list_key] = _dedupe_preserve([str(item) for item in payload[list_key]])
-
-    return payload
+def parse_analysis(raw: str) -> tuple[LlmAnalysis | None, list[str]]:
+    try:
+        data = json.loads(raw)
+    except ValueError as error:
+        # Also an integer longer than Python's 4300-digit limit, which is not a JSONDecodeError.
+        return None, [f"response is not valid JSON ({error})"]
+    if not isinstance(data, dict):
+        return None, ["response must be a JSON object"]
+    try:
+        analysis = LlmAnalysis.model_validate(_normalize(data))
+    except ValidationError as error:
+        return None, [_describe(detail) for detail in error.errors()]
+    return (None, errors) if (errors := rule_errors(analysis)) else (analysis, [])
 
 
 def rule_errors(analysis: LlmAnalysis) -> list[str]:
-    errors: list[str] = []
-    sentences = count_sentences(analysis.summary)
-    if sentences < 3 or sentences > 5:
-        errors.append(f"summary must have 3-5 sentences (got {sentences})")
-    n_points = len(analysis.key_points)
-    if n_points < 3 or n_points > 7:
-        errors.append(f"keyPoints must have 3-7 items (got {n_points})")
+    errors = []
+    low, high = SUMMARY_SENTENCES
+    if not low <= (sentences := count_sentences(analysis.summary)) <= high:
+        errors.append(f"summary must have {low}-{high} sentences, has {sentences}")
+    low, high = KEY_POINTS
+    if not low <= (points := len(analysis.key_points)) <= high:
+        errors.append(f"keyPoints must have {low}-{high} items, has {points}")
     return errors
 
 
-def parse_and_validate(data: dict[str, Any]) -> tuple[LlmAnalysis | None, list[str]]:
-    normalized = normalize_payload(data)
-    try:
-        analysis = LlmAnalysis.model_validate(normalized)
-    except ValidationError as error:
-        return None, [err["msg"] for err in error.errors()]
-    rules = rule_errors(analysis)
-    if rules:
-        return None, rules
-    return analysis, []
+def count_sentences(text: str) -> int:
+    protected = INITIAL_RE.sub(r"\1", ABBREVIATION_RE.sub(_keep_final_dot_at_sentence_end, text))
+    return sum(1 for part in SENTENCE_END_RE.split(protected) if part.strip())
+
+
+def dedupe(items: Iterable[str]) -> list[str]:
+    """Trims, drops empty strings and case-insensitive duplicates, keeps the first spelling."""
+    seen: set[str] = set()
+    unique = []
+    for item in (item.strip() for item in items):
+        if item and item.casefold() not in seen:
+            seen.add(item.casefold())
+            unique.append(item)
+    return unique
+
+
+def _keep_final_dot_at_sentence_end(match: re.Match[str]) -> str:
+    bare = match.group(0).replace(".", "")
+    return bare + "." if SENTENCE_START_RE.match(match.string, match.end()) else bare
+
+
+def _normalize(data: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic clean-up before validation: trim, dedupe, empty strings to null, zł to PLN."""
+    document = data.get("document")
+    if isinstance(document, dict):
+        for key in ("title", "date"):
+            if isinstance(document.get(key), str):
+                document[key] = document[key].strip() or None
+        if isinstance(document.get("language"), str):
+            document["language"] = document["language"].strip().lower()
+    for key in ("organizations", "people"):
+        _dedupe_strings(data.get("entities"), key)
+    for key in ("keyPoints", "keywords", "suspiciousInstructions"):
+        _dedupe_strings(data, key)
+    for amount in data.get("amounts") or []:
+        if isinstance(amount, dict) and isinstance(amount.get("currency"), str):
+            currency = amount["currency"].strip()
+            amount["currency"] = CURRENCIES.get(currency.lower(), currency.upper())
+    return data
+
+
+def _dedupe_strings(container: Any, key: str) -> None:
+    value = container.get(key) if isinstance(container, dict) else None
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        container[key] = dedupe(value)
+
+
+def _describe(detail: Any) -> str:
+    location = ".".join(str(part) for part in detail["loc"])
+    return f"{location}: {detail['msg']}"

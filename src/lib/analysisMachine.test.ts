@@ -1,152 +1,164 @@
-import { describe, expect, it } from 'vitest';
-import { AppError } from './errors';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import umowa from '../../schema/fixtures/valid/umowa.json';
+import { analyzeExtraction, extractText } from '../api/client';
 import {
   analysisReducer,
-  initialAnalysisState,
+  IDLE,
+  runPipeline,
   statusMessage,
+  type AnalysisAction,
   type AnalysisState,
+  type Run,
 } from './analysisMachine';
-import type { AnalysisResult, ExtractResponse } from './schema';
+import { AppError } from './errors';
+import { validatePdf } from './pdf';
+import { analysisResultSchema, type ExtractResponse } from './schema';
 
-const file = new File(['%PDF-1.4'], 'demo.pdf', { type: 'application/pdf' });
+vi.mock('../api/client', () => ({ extractText: vi.fn(), analyzeExtraction: vi.fn() }));
+vi.mock('./pdf', () => ({ validatePdf: vi.fn() }));
 
-const extraction = {
-  extractionId: 'id-1',
-  fileName: 'demo.pdf',
-  pages: 1,
-  chars: 10,
-  pageInfo: [{ page: 1, method: 'text', chars: 10, confidence: null }],
+const file = new File(['%PDF-1.4'], 'umowa.pdf', { type: 'application/pdf' });
+const result = analysisResultSchema.parse(umowa);
+const extraction = (extractionId: string): ExtractResponse => ({
+  extractionId,
+  fileName: 'umowa.pdf',
+  pages: 12,
+  chars: 100,
+  pageInfo: [],
   warnings: [],
   expiresAt: '2026-10-29T18:15:00Z',
-} as ExtractResponse;
+});
+const notFound = new AppError('EXTRACTION_NOT_FOUND');
 
-const result = {
-  document: {
-    fileName: 'demo.pdf',
-    pages: 1,
-    language: 'pl',
-    type: 'umowa',
-    title: 'Umowa demo',
-    date: null,
-  },
-} as AnalysisResult;
-
-function running(overrides: Partial<AnalysisState> = {}): AnalysisState {
-  return {
-    ...initialAnalysisState,
-    phase: 'running',
-    file,
-    startedAt: 1_000,
-    ...overrides,
-  };
-}
+const running: AnalysisState = {
+  phase: 'running',
+  startedAt: 1,
+  file,
+  step: 2,
+  extraction: extraction('e1'),
+};
 
 describe('analysisReducer', () => {
-  it('startuje od kroku wgrywania z wybranym plikiem', () => {
-    const next = analysisReducer(initialAnalysisState, {
-      type: 'start',
-      file,
-      startedAt: 42,
-    });
-    expect(next).toMatchObject({
+  it('start sets the run at the given step', () => {
+    const run: Run = { file, step: 2, extraction: extraction('e1') };
+    expect(analysisReducer(IDLE, { type: 'start', run, startedAt: 5 })).toEqual({
       phase: 'running',
-      step: 0,
-      file,
-      startedAt: 42,
-      result: null,
-      error: null,
+      startedAt: 5,
+      ...run,
     });
   });
 
-  it('zapisuje ekstrakcję i wynik, a po błędzie ustawia failedStep', () => {
-    let state = running();
-    state = analysisReducer(state, { type: 'set_step', step: 1 });
-    state = analysisReducer(state, { type: 'extraction_ok', extraction });
-    expect(state.extraction).toEqual(extraction);
-
-    state = analysisReducer(state, { type: 'set_step', step: 2 });
-    const failed = analysisReducer(state, {
-      type: 'fail',
-      error: new AppError('AI_UNAVAILABLE'),
-      failedStep: 2,
+  it('extracting clears the old extraction and analyzing stores the new one', () => {
+    const extracting = analysisReducer(running, { type: 'extracting' });
+    expect(extracting).toMatchObject({ step: 1, extraction: null });
+    const analyzing = analysisReducer(extracting, {
+      type: 'analyzing',
+      extraction: extraction('e2'),
     });
-    expect(failed.phase).toBe('error');
-    expect(failed.failedStep).toBe(2);
-    expect(failed.step).toBe(2);
-    expect(failed.extraction).toEqual(extraction);
-
-    const done = analysisReducer(running({ extraction }), { type: 'done', result });
-    expect(done).toMatchObject({ phase: 'done', step: 3, result });
+    expect(analyzing).toMatchObject({ step: 2, extraction: { extractionId: 'e2' } });
   });
 
-  it('anulowanie i reset wracają do stanu początkowego', () => {
-    const state = running({ extraction, step: 2 });
-    expect(analysisReducer(state, { type: 'abort' })).toEqual(initialAnalysisState);
-    expect(analysisReducer(state, { type: 'reset' })).toEqual(initialAnalysisState);
-  });
-
-  it('retry od analizy zachowuje ekstrakcję, a od odczytu ją czyści', () => {
-    const errored: AnalysisState = {
-      ...running({ extraction, step: 2 }),
+  it('a failure keeps the step and extraction, so only that step is retried', () => {
+    const error = new AppError('AI_UNAVAILABLE');
+    expect(analysisReducer(running, { type: 'fail', error })).toEqual({
       phase: 'error',
-      error: new AppError('AI_UNAVAILABLE'),
-      failedStep: 2,
-    };
-    const retryAnalyze = analysisReducer(errored, {
-      type: 'retry',
-      fromStep: 2,
-      startedAt: 99,
-    });
-    expect(retryAnalyze).toMatchObject({
-      phase: 'running',
+      file,
       step: 2,
-      extraction,
-      error: null,
-      startedAt: 99,
+      extraction: extraction('e1'),
+      error,
     });
-
-    const retryExtract = analysisReducer(errored, {
-      type: 'retry',
-      fromStep: 1,
-      startedAt: 100,
-    });
-    expect(retryExtract.extraction).toBeNull();
-    expect(retryExtract.step).toBe(1);
   });
 
-  it('ignoruje przejścia poza fazą running', () => {
-    const idle = analysisReducer(initialAnalysisState, { type: 'set_step', step: 2 });
-    expect(idle).toEqual(initialAnalysisState);
+  it('ends with the result and returns to idle on reset', () => {
+    const done = analysisReducer(running, { type: 'done', result });
+    expect(done).toEqual({ phase: 'done', file, result });
+    expect(analysisReducer(done, { type: 'reset' })).toBe(IDLE);
+  });
 
-    const errored: AnalysisState = {
-      ...running(),
-      phase: 'error',
-      error: new AppError('NETWORK'),
-      failedStep: 1,
-    };
-    expect(analysisReducer(errored, { type: 'done', result })).toEqual(errored);
+  it('ignores run actions outside the running phase', () => {
+    expect(analysisReducer(IDLE, { type: 'done', result })).toBe(IDLE);
+    expect(analysisReducer(IDLE, { type: 'extracting' })).toBe(IDLE);
+  });
+});
+
+describe('runPipeline', () => {
+  const actions: AnalysisAction[] = [];
+  const dispatch = (action: AnalysisAction) => actions.push(action);
+  const types = () => actions.map((action) => action.type);
+
+  beforeEach(() => {
+    actions.length = 0;
+    vi.mocked(validatePdf).mockReset().mockResolvedValue();
+    vi.mocked(extractText).mockReset().mockResolvedValue(extraction('e1'));
+    vi.mocked(analyzeExtraction).mockReset().mockResolvedValue(result);
+  });
+
+  it('runs validation, extraction and analysis', async () => {
+    const signal = new AbortController().signal;
+    await expect(runPipeline({ file, step: 0, extraction: null }, signal, dispatch)).resolves.toBe(
+      result,
+    );
+    expect(types()).toEqual(['start', 'extracting', 'analyzing', 'done']);
+    expect(validatePdf).toHaveBeenCalledWith(file);
+    expect(analyzeExtraction).toHaveBeenCalledWith('e1', signal);
+  });
+
+  it('an analysis retry does not upload the file again', async () => {
+    const run: Run = { file, step: 2, extraction: extraction('e1') };
+    await runPipeline(run, new AbortController().signal, dispatch);
+    expect(validatePdf).not.toHaveBeenCalled();
+    expect(extractText).not.toHaveBeenCalled();
+    expect(types()).toEqual(['start', 'analyzing', 'done']);
+  });
+
+  it('uploads the file again once after the extraction expired', async () => {
+    vi.mocked(extractText).mockResolvedValueOnce(extraction('e2'));
+    vi.mocked(analyzeExtraction).mockRejectedValueOnce(notFound);
+    const run: Run = { file, step: 2, extraction: extraction('e1') };
+    await expect(runPipeline(run, new AbortController().signal, dispatch)).resolves.toBe(result);
+    expect(analyzeExtraction).toHaveBeenLastCalledWith('e2', expect.anything());
+
+    actions.length = 0;
+    vi.mocked(analyzeExtraction).mockRejectedValue(notFound);
+    await expect(runPipeline(run, new AbortController().signal, dispatch)).resolves.toBeNull();
+    expect(analyzeExtraction).toHaveBeenCalledTimes(4);
+    expect(actions.at(-1)).toEqual({ type: 'fail', error: notFound });
+  });
+
+  it('changes no state after a cancel', async () => {
+    const controller = new AbortController();
+    vi.mocked(validatePdf).mockImplementation(async () => {
+      controller.abort();
+    });
+    vi.mocked(extractText).mockRejectedValue(new AppError('ABORTED'));
+    await expect(
+      runPipeline({ file, step: 0, extraction: null }, controller.signal, dispatch),
+    ).resolves.toBeNull();
+    expect(types()).toEqual(['start']);
+  });
+
+  it('turns an unknown exception into INTERNAL', async () => {
+    vi.mocked(validatePdf).mockRejectedValue(new TypeError('chunk load failed'));
+    await runPipeline({ file, step: 0, extraction: null }, new AbortController().signal, dispatch);
+    expect(actions.at(-1)).toMatchObject({ type: 'fail', error: { code: 'INTERNAL' } });
   });
 });
 
 describe('statusMessage', () => {
-  it('opisuje fazę po polsku', () => {
-    expect(statusMessage(initialAnalysisState)).toMatch(/Gotowy/);
-    expect(statusMessage(running({ step: 1 }))).toBe('Trwa: Odczyt tekstu');
+  it('describes the phase in Polish', () => {
+    expect(statusMessage(IDLE)).toBe('Wybierz plik PDF.');
+    expect(statusMessage({ ...running, step: 1 })).toBe('Trwa: Odczyt tekstu');
     expect(
       statusMessage({
-        ...running(),
         phase: 'error',
+        file,
+        step: 1,
+        extraction: null,
         error: new AppError('NETWORK'),
-        failedStep: 1,
       }),
-    ).toMatch(/Brak połączenia/);
-    expect(
-      statusMessage({
-        ...running(),
-        phase: 'done',
-        step: 3,
-        result,
-      }),
-    ).toBe('Analiza zakończona: Umowa demo');
+    ).toBe(new AppError('NETWORK').message);
+    expect(statusMessage({ phase: 'done', file, result })).toBe(
+      `Analiza zakończona: ${result.document.title}`,
+    );
   });
 });

@@ -19,7 +19,7 @@ function applyPatch(source: unknown, patch: Patch): unknown {
     parent = (parent as Record<string | number, unknown>)[segment];
   }
   if (key === undefined || typeof parent !== 'object' || parent === null) {
-    throw new Error(`Niepoprawna ścieżka w przypadku "${patch.name}"`);
+    throw new Error(`Invalid path in case "${patch.name}"`);
   }
   const target = parent as Record<string | number, unknown>;
   if (patch.delete) Reflect.deleteProperty(target, key);
@@ -28,20 +28,17 @@ function applyPatch(source: unknown, patch: Patch): unknown {
 }
 
 describe('analysisResultSchema', () => {
-  it('ma wspólne fikstury do sprawdzenia', () => {
+  it('has shared fixtures to check', () => {
     expect(Object.keys(validFixtures).length).toBeGreaterThan(0);
     expect(umowa).toBeDefined();
   });
 
-  it.each(Object.entries(validFixtures))('akceptuje poprawny wynik %s', (_, fixture) => {
+  it.each(Object.entries(validFixtures))('accepts the valid result %s', (_, fixture) => {
     const parsed = analysisResultSchema.safeParse(fixture);
     expect(parsed.error).toBeUndefined();
   });
 
-  it.each((invalidCases as Patch[]).map((patch) => [patch.name, patch] as const))(
-    'odrzuca wynik: %s',
-    (_, patch) => {
-      expect(analysisResultSchema.safeParse(applyPatch(umowa, patch)).success).toBe(false);
-    },
-  );
+  it.each(invalidCases as Patch[])('rejects $name', (patch) => {
+    expect(analysisResultSchema.safeParse(applyPatch(umowa, patch)).success).toBe(false);
+  });
 });

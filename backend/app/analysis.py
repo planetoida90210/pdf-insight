@@ -1,181 +1,137 @@
-"""Analyze extracted text: LLM call, validate+retry, chunking, ground, assemble."""
-
-from __future__ import annotations
+"""Analysis pipeline: LLM call with one validated retry, chunk merge, grounding, result assembly."""
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 
-from app.chunking import merge_chunk_analyses, run_bounded, split_into_chunks
-from app.errors import ApiError, ErrorCode
+from app.chunking import merge_analyses, split_into_chunks
+from app.config import Settings
+from app.errors import ApiError, ErrorCode, WarningCode, warning
+from app.extraction import Extraction
 from app.grounding import ground_analysis
-from app.llm import LlmTransport, analyze_with_llm
-from app.prompts import SYSTEM_PROMPT, document_id, reduce_prompt, retry_prompt, user_prompt
+from app.llm import PROVIDER, OpenRouter
+from app.prompts import (
+    ANALYZE_TASK,
+    REDUCE_TASK,
+    SYSTEM_PROMPT,
+    document_prompt,
+    parts_digest,
+    retry_note,
+)
 from app.schema import (
+    LLM_JSON_SCHEMA,
     AnalysisResult,
     AnalysisWarning,
     DocumentInfo,
     LlmAnalysis,
     Meta,
-    PageInfo,
 )
-from app.validation import parse_and_validate
+from app.validation import parse_analysis
 
-logger = logging.getLogger("pdf_insight")
+logger = logging.getLogger(__name__)
+
+# The brief allows one retry after an invalid AI response.
+ATTEMPTS = 2
+CHUNK_CONCURRENCY = 3
 
 
 def analyze_extraction(
-    *,
-    transport: LlmTransport,
-    provider: str,
-    model: str,
-    file_name: str,
-    pages: int,
-    text: str,
-    page_info: list[PageInfo],
-    extract_warnings: list[AnalysisWarning],
-    chunk_chars: int = 40_000,
-    chunk_concurrency: int = 3,
+    llm: OpenRouter, extraction: Extraction, settings: Settings
 ) -> AnalysisResult:
     started = time.perf_counter()
-    chunks = split_into_chunks(text, chunk_chars)
-    chunk_count = max(1, len(chunks))
-    extra_warnings: list[AnalysisWarning] = []
-
-    if chunk_count == 1:
-        llm = _call_with_retry(transport, chunks[0] if chunks else text)
-    else:
-        logger.info(
-            "analyze chunking chars=%s chunks=%s concurrency=%s",
-            len(text),
-            chunk_count,
-            chunk_concurrency,
-        )
-        per_chunk = run_bounded(
-            chunks,
-            lambda chunk: _call_with_retry(transport, chunk),
-            concurrency=chunk_concurrency,
-        )
-        merged = merge_chunk_analyses(per_chunk)
-        reduced = _reduce_summary(transport, per_chunk)
-        llm = LlmAnalysis(
-            document=merged.document,
-            summary=reduced.summary,
-            key_points=reduced.key_points,
-            entities=merged.entities,
-            amounts=merged.amounts,
-            dates=merged.dates,
-            keywords=merged.keywords,
-            suspicious_instructions=merged.suspicious_instructions,
-        )
-        extra_warnings.append(
-            AnalysisWarning(
-                code="CHUNKED",
-                page=None,
-                message=(
-                    f"Dokument był zbyt długi — przeanalizowano go w {chunk_count} "
-                    "częściach i scalono wyniki."
-                ),
-            )
-        )
-
-    grounded, ground_warnings = ground_analysis(llm, text)
-    warnings = _merge_warnings(extract_warnings, grounded, ground_warnings)
-    warnings.extend(extra_warnings)
-    ocr_pages = sorted({p.page for p in page_info if p.method in {"ocr", "vision"}})
-    hidden_pages = sorted(
-        {w.page for w in extract_warnings if w.code == "HIDDEN_TEXT" and w.page is not None}
-    )
+    # The route stops waiting here; the worker thread must stop calling the LLM as well.
+    deadline = time.monotonic() + settings.analyze_timeout_seconds
+    chunks = split_into_chunks(extraction.pages, settings.chunk_chars)
+    analysis, removed = ground_analysis(_analyze_chunks(llm, chunks, deadline), extraction.text)
+    warnings = _warnings(extraction, analysis, removed, len(chunks))
     elapsed_ms = int((time.perf_counter() - started) * 1000)
-    result = AnalysisResult(
-        document=DocumentInfo(
-            file_name=file_name,
-            pages=pages,
-            language=grounded.document.language,
-            type=grounded.document.type,
-            title=grounded.document.title,
-            date=grounded.document.date,
-        ),
-        summary=grounded.summary,
-        key_points=grounded.key_points,
-        entities=grounded.entities,
-        amounts=grounded.amounts,
-        dates=grounded.dates,
-        keywords=grounded.keywords,
-        warnings=warnings,
-        meta=Meta(
-            schema_version="1.0",
-            analyzed_at=datetime.now(UTC),
-            provider=provider,
-            model=model,
-            ocr_pages=ocr_pages,
-            hidden_text_pages=hidden_pages,
-            chunks=chunk_count,
-            processing_ms=elapsed_ms,
-        ),
-    )
     logger.info(
-        "analyze provider=%s model=%s pages=%s chunks=%s ms=%s warnings=%s",
-        provider,
-        model,
-        pages,
-        chunk_count,
-        elapsed_ms,
-        [w.code for w in warnings],
+        "analyzed chunks=%s ms=%s warnings=%s", len(chunks), elapsed_ms, [w.code for w in warnings]
     )
-    return result
+    return AnalysisResult(
+        document=DocumentInfo(
+            file_name=extraction.file_name,
+            pages=len(extraction.page_info),
+            **analysis.document.model_dump(),
+        ),
+        summary=analysis.summary,
+        key_points=analysis.key_points,
+        entities=analysis.entities,
+        amounts=analysis.amounts,
+        dates=analysis.dates,
+        keywords=analysis.keywords,
+        warnings=warnings,
+        meta=_meta(extraction, settings.llm_model, len(chunks), elapsed_ms),
+    )
 
 
-def _call_with_retry(transport: LlmTransport, text: str) -> LlmAnalysis:
-    doc_id = document_id()
-    first_user = user_prompt(text, doc_id=doc_id)
-    raw = analyze_with_llm(transport, system=SYSTEM_PROMPT, user=first_user)
-    analysis, errors = parse_and_validate(raw)
-    if analysis is not None:
-        return analysis
-
-    second_user = retry_prompt(text, errors, doc_id=doc_id)
-    raw_retry = analyze_with_llm(transport, system=SYSTEM_PROMPT, user=second_user)
-    analysis_retry, errors_retry = parse_and_validate(raw_retry)
-    if analysis_retry is not None:
-        return analysis_retry
-    logger.info("ai invalid after retry codes=%s", len(errors_retry))
-    raise ApiError(ErrorCode.AI_INVALID_RESPONSE)
+def _analyze_chunks(llm: OpenRouter, chunks: list[str], deadline: float) -> LlmAnalysis:
+    """One chunk: one analysis. More: analyse each, merge them, then summarise the summaries."""
+    if len(chunks) == 1:
+        return _ask(llm, ANALYZE_TASK, chunks[0], deadline)
+    parts = _ask_each(llm, chunks, deadline)
+    overview = _ask(llm, REDUCE_TASK, parts_digest(parts), deadline)
+    return merge_analyses(parts).model_copy(
+        update={"summary": overview.summary, "key_points": overview.key_points}
+    )
 
 
-def _reduce_summary(transport: LlmTransport, parts: list[LlmAnalysis]) -> LlmAnalysis:
-    briefs = [(part.summary, list(part.key_points)) for part in parts]
-    raw = analyze_with_llm(transport, system=SYSTEM_PROMPT, user=reduce_prompt(briefs))
-    # Reuse document fields from the first chunk so validation can pass; only
-    # summary/keyPoints from the reduce response are kept by the caller.
-    seed = parts[0].model_dump(by_alias=True)
-    if isinstance(raw, dict):
-        if "summary" in raw:
-            seed["summary"] = raw["summary"]
-        if "keyPoints" in raw:
-            seed["keyPoints"] = raw["keyPoints"]
-        elif "key_points" in raw:
-            seed["keyPoints"] = raw["key_points"]
-    analysis, errors = parse_and_validate(seed)
-    if analysis is not None:
-        return analysis
-    logger.info("ai reduce invalid codes=%s", len(errors))
-    raise ApiError(ErrorCode.AI_INVALID_RESPONSE)
+def _ask_each(llm: OpenRouter, chunks: list[str], deadline: float) -> list[LlmAnalysis]:
+    """Chunks in parallel; the first failure drops the chunks not started yet and is raised
+    at once, without waiting for the calls in flight."""
+    pool = ThreadPoolExecutor(CHUNK_CONCURRENCY)
+    futures = [pool.submit(_ask, llm, ANALYZE_TASK, chunk, deadline) for chunk in chunks]
+    try:
+        for future in as_completed(futures):
+            future.result()
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return [future.result() for future in futures]
 
 
-def _merge_warnings(
-    extract_warnings: list[AnalysisWarning],
-    grounded: LlmAnalysis,
-    ground_warnings: list[AnalysisWarning],
-) -> list[AnalysisWarning]:
-    warnings = list(extract_warnings)
-    warnings.extend(ground_warnings)
-    for instruction in grounded.suspicious_instructions:
-        warnings.append(
-            AnalysisWarning(
-                code="INJECTION_SUSPECTED",
-                page=None,
-                message=f"Model zgłosił podejrzaną instrukcję w dokumencie: „{instruction[:160]}”.",
-            )
+def _ask(llm: OpenRouter, task: str, document: str, deadline: float) -> LlmAnalysis:
+    prompt = document_prompt(task, document)
+    errors: list[str] = []
+    for _ in range(ATTEMPTS):
+        if time.monotonic() > deadline:
+            raise ApiError(ErrorCode.TIMEOUT)
+        raw = llm.generate(
+            system=SYSTEM_PROMPT, prompt=prompt + retry_note(errors), json_schema=LLM_JSON_SCHEMA
         )
+        analysis, errors = parse_analysis(raw)
+        if analysis is not None:
+            return analysis
+    logger.warning("invalid AI response after retry: %s", errors)
+    raise ApiError(ErrorCode.AI_INVALID_RESPONSE)
+
+
+def _warnings(
+    extraction: Extraction, analysis: LlmAnalysis, removed: int, chunks: int
+) -> list[AnalysisWarning]:
+    """Extraction warnings first, then what analysis found."""
+    warnings = list(extraction.warnings)
+    if removed:
+        warnings.append(warning(WarningCode.UNGROUNDED_REMOVED, count=removed))
+    if chunks > 1:
+        warnings.append(warning(WarningCode.CHUNKED, chunks=chunks))
+    warnings += [
+        warning(WarningCode.INJECTION_SUSPECTED, snippet=quote)
+        for quote in analysis.suspicious_instructions
+    ]
     return warnings
+
+
+def _meta(extraction: Extraction, model: str, chunks: int, elapsed_ms: int) -> Meta:
+    return Meta(
+        schema_version="1.0",
+        analyzed_at=datetime.now(UTC),
+        provider=PROVIDER,
+        model=model,
+        ocr_pages=[info.page for info in extraction.page_info if info.method != "text"],
+        hidden_text_pages=[
+            w.page for w in extraction.warnings if w.code == WarningCode.HIDDEN_TEXT and w.page
+        ],
+        chunks=chunks,
+        processing_ms=elapsed_ms,
+    )

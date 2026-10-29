@@ -12,8 +12,8 @@ const entrySchema = z.object({
 
 export type HistoryEntry = z.infer<typeof entrySchema>;
 
-// localStorage może rzucić wyjątek (tryb prywatny, zablokowane ciasteczka) albo zawierać śmieci,
-// dlatego każdy wpis jest walidowany osobno, a uszkodzone są pomijane.
+// localStorage can throw (private mode, blocked cookies) or hold garbage, so every entry is
+// validated on its own and broken ones are skipped.
 export function readHistory(): HistoryEntry[] {
   let raw: string | null;
   try {
@@ -37,7 +37,7 @@ export function readHistory(): HistoryEntry[] {
   });
 }
 
-// Przy przekroczeniu limitu miejsca usuwa najstarsze wpisy, aż zapis się zmieści.
+// Over the storage quota, drops the oldest entries until the write fits.
 function writeHistory(entries: HistoryEntry[]): HistoryEntry[] {
   for (let count = entries.length; count > 0; count--) {
     const kept = entries.slice(0, count);
@@ -45,7 +45,7 @@ function writeHistory(entries: HistoryEntry[]): HistoryEntry[] {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(kept));
       return kept;
     } catch {
-      // brak miejsca albo dostępu: próbujemy z mniejszą liczbą wpisów
+      // no space or no access: try again with fewer entries
     }
   }
   clearHistory();
@@ -69,6 +69,6 @@ export function clearHistory(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch {
-    // brak dostępu do localStorage: nie ma czego czyścić
+    // no access to localStorage: nothing to clear
   }
 }

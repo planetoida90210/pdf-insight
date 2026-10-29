@@ -1,4 +1,10 @@
+"""Error and warning codes with their Polish messages (the only place user-facing texts live)."""
+
 from enum import StrEnum
+from functools import partial
+from typing import Any
+
+from app.schema import AnalysisWarning
 
 
 class ErrorCode(StrEnum):
@@ -19,15 +25,30 @@ class ErrorCode(StrEnum):
     INTERNAL = "INTERNAL"
 
 
+class WarningCode(StrEnum):
+    HIDDEN_TEXT = "HIDDEN_TEXT"
+    OCR_USED = "OCR_USED"
+    VISION_USED = "VISION_USED"
+    OCR_LOW_CONFIDENCE = "OCR_LOW_CONFIDENCE"
+    PAGES_SKIPPED = "PAGES_SKIPPED"
+    TEXT_LIMIT = "TEXT_LIMIT"
+    INJECTION_SUSPECTED = "INJECTION_SUSPECTED"
+    UNGROUNDED_REMOVED = "UNGROUNDED_REMOVED"
+    CHUNKED = "CHUNKED"
+
+
 ERRORS: dict[ErrorCode, tuple[int, str]] = {
-    ErrorCode.FILE_TOO_LARGE: (413, "Plik jest za duży."),
+    ErrorCode.FILE_TOO_LARGE: (413, "Plik jest za duży. Maksymalny rozmiar to {max_mb} MB."),
     ErrorCode.UNSUPPORTED_TYPE: (415, "Obsługiwane są tylko pliki PDF."),
     ErrorCode.INVALID_PDF: (422, "Plik jest uszkodzony albo nie jest poprawnym dokumentem PDF."),
     ErrorCode.ENCRYPTED_PDF: (
         422,
         "Plik PDF jest zabezpieczony hasłem. Usuń zabezpieczenie i spróbuj ponownie.",
     ),
-    ErrorCode.TOO_MANY_PAGES: (422, "Dokument ma za dużo stron."),
+    ErrorCode.TOO_MANY_PAGES: (
+        422,
+        "Dokument ma za dużo stron. Maksymalna liczba stron to {max_pages}.",
+    ),
     ErrorCode.NO_TEXT: (422, "Nie udało się odczytać tekstu z dokumentu, również przez OCR."),
     ErrorCode.EXTRACTION_NOT_FOUND: (
         404,
@@ -46,16 +67,53 @@ ERRORS: dict[ErrorCode, tuple[int, str]] = {
     ErrorCode.INTERNAL: (500, "Wystąpił nieoczekiwany błąd serwera. Spróbuj ponownie."),
 }
 
+WARNINGS: dict[WarningCode, str] = {
+    WarningCode.HIDDEN_TEXT: (
+        'Na stronie {page} wykryto niewidoczny tekst: "{snippet}". Pominięto go w analizie.'
+    ),
+    WarningCode.OCR_USED: "Strona {page} nie ma warstwy tekstowej. Odczytano ją przez OCR.",
+    WarningCode.VISION_USED: (
+        "Strona {page} nie ma czytelnej warstwy tekstowej. Tekst odczytał model AI z obrazu."
+    ),
+    WarningCode.OCR_LOW_CONFIDENCE: "Strona {page}: niska pewność OCR ({confidence:.0f}%).",
+    WarningCode.PAGES_SKIPPED: (
+        "Strona {page} wymaga OCR, ale osiągnięto limit stron OCR ({limit}). Pominięto ją."
+    ),
+    WarningCode.TEXT_LIMIT: (
+        "Pominięto tekst od strony {page}: dokument przekracza limit {limit} znaków."
+    ),
+    WarningCode.INJECTION_SUSPECTED: (
+        'Dokument zawiera fragment wyglądający na polecenie dla AI: "{snippet}". '
+        "Potraktowano go jako dane, nie jako polecenie."
+    ),
+    WarningCode.UNGROUNDED_REMOVED: (
+        "Usunięto kwoty lub daty, których nie znaleziono w tekście dokumentu (liczba: {count})."
+    ),
+    WarningCode.CHUNKED: (
+        "Dokument był długi. Przeanalizowano go w {chunks} częściach i scalono wyniki."
+    ),
+}
+
+SNIPPET_CHARS = 160
+
 
 class ApiError(Exception):
     def __init__(
-        self,
-        code: ErrorCode,
-        message: str | None = None,
-        headers: dict[str, str] | None = None,
+        self, code: ErrorCode, headers: dict[str, str] | None = None, **fields: object
     ) -> None:
         self.code = code
-        self.status, default_message = ERRORS[code]
-        self.message = message or default_message
+        self.status, template = ERRORS[code]
+        self.message = template.format(**fields)
         self.headers = headers
+        self.fields = fields
         super().__init__(code)
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        # Errors raised in the extraction worker come back to the web process by pickle.
+        return partial(ApiError, self.code, self.headers, **self.fields), ()
+
+
+def warning(code: WarningCode, page: int | None = None, **fields: object) -> AnalysisWarning:
+    if "snippet" in fields:
+        fields["snippet"] = str(fields["snippet"])[:SNIPPET_CHARS]
+    return AnalysisWarning(code=code, page=page, message=WARNINGS[code].format(page=page, **fields))

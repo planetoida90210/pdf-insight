@@ -17,8 +17,8 @@
   "meta": {
     "schemaVersion": "1.0",
     "analyzedAt": "2026-10-29T17:45:00Z",
-    "provider": "anthropic",
-    "model": "claude-haiku-5-5",
+    "provider": "openrouter",
+    "model": "anthropic/claude-haiku-5.5",
     "ocrPages": [],
     "hiddenTextPages": [],
     "chunks": 1,
