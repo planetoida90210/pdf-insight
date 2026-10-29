@@ -36,7 +36,8 @@ Zod → widok, JSON, historia          walidacja Pydantic, 1 retry, grounding
 - **Długie dokumenty.** Tekst > 150 000 znaków dzielony po stronach na fragmenty analizowane równolegle (do 8);
   wyniki łączone, podsumowanie pisane z całości. Ponad 2 000 000 znaków → odmowa (`TEXT_TOO_LONG`), bez pomijania stron.
 - **Bezpieczeństwo.** Klucz tylko w zmiennych DigitalOcean App Platform; CORS tylko dla domeny demo; limity: 10 MB, 200 stron,
-  20 żądań/min na IP, dzienny limit wywołań LLM; brak `dangerouslySetInnerHTML`; logi bez treści dokumentów.
+  20 żądań/min na IP, dzienny limit wywołań LLM łącznie i na IP; brak `dangerouslySetInnerHTML`; logi bez treści
+  dokumentów.
 - **Rozważane i odrzucone:** Docling, PaddleOCR (wolne na współdzielonym CPU), LangChain + baza wektorowa (brak
   przypadku użycia), Redis do limitów (jedna replika wystarcza).
 

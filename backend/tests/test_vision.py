@@ -11,7 +11,7 @@ from app.extraction import DEADLINE_MARGIN_SECONDS, Extraction, extract_pdf
 from app.llm import OpenRouter
 from app.ocr import OCR_SCALE, render_page
 from app.schema import OcrPage
-from tests.fakes import FakeLlm
+from tests.fakes import FakeLlm, budget
 from tests.pdfs import image_pages_pdf
 
 
@@ -50,6 +50,13 @@ def test_only_the_least_confident_pages_go_to_vision_in_one_round() -> None:
     methods = [info.method for info in result.page_info]
     assert methods == ["ocr", "vision", "vision", "ocr"]
     assert len(llm.prompts) == 2
+
+
+def test_vision_calls_stop_when_the_client_budget_is_used_up() -> None:
+    llm = FakeLlm(lambda _: "Aneks: 13 100 PLN")
+    result = extract(llm.billed_to(budget(1)), 40.0, 30.0, 50.0)
+    assert sorted(info.method for info in result.page_info) == ["ocr", "ocr", "vision"]
+    assert len(llm.prompts) == 1
 
 
 def test_vision_failure_keeps_the_ocr_text() -> None:

@@ -7,7 +7,7 @@ import httpx2
 from app.extraction import Extraction
 from app.llm import BASE_URL, OpenRouter
 from app.prompts import PAGE_MARKER
-from app.ratelimit import DailyCounter
+from app.ratelimit import DailyLlmLimits, LlmBudget
 from app.schema import AnalysisWarning, PageInfo
 
 
@@ -42,13 +42,18 @@ def completion(content: str | None) -> dict[str, Any]:
     }
 
 
+def budget(limit: int = 100) -> LlmBudget:
+    """One client's budget, with `limit` calls for it and for the service."""
+    return DailyLlmLimits(limit, limit).budget_for("test")
+
+
 class FakeLlm(OpenRouter):
     """The real client over a mock transport: every request is answered with `respond(prompt)`."""
 
-    def __init__(self, respond: Callable[[str], str], daily_limit: int = 100) -> None:
+    def __init__(self, respond: Callable[[str], str]) -> None:
         transport = httpx2.MockTransport(self._reply)
         client = httpx2.Client(base_url=BASE_URL, transport=transport)
-        super().__init__(client, "test/model", DailyCounter(daily_limit))
+        super().__init__(client, "test/model", budget())
         self.respond = respond
         self.prompts: list[str] = []
 

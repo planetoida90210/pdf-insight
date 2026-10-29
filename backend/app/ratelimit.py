@@ -1,11 +1,14 @@
-"""In-memory request limits: a sliding window per client IP and a global daily cap."""
+"""In-memory request limits: a sliding window per client IP and daily caps on LLM calls."""
 
 import ipaddress
 import math
 import time
 from collections import deque
 from collections.abc import Callable
+from ctypes import c_int
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from multiprocessing.sharedctypes import Synchronized
 
 from starlette.requests import Request
 
@@ -46,27 +49,51 @@ def utc_today() -> date:
     return datetime.now(UTC).date()
 
 
-class DailyCounter:
-    """Global cap per UTC day; protects the LLM budget regardless of client IPs.
+@dataclass(frozen=True, slots=True)
+class LlmBudget:
+    """The LLM calls one client may still make today.
 
-    The count lives in shared memory, so extraction workers draw from the same budget.
+    The counts live in shared memory and the budget is passed to the extraction worker started
+    for the request, so the worker's vision calls draw from it as well.
     """
 
-    def __init__(self, limit: int, today: Callable[[], date] = utc_today) -> None:
-        self.limit = limit
-        self.today = today
-        self._day = CONTEXT.Value("i", today().toordinal(), lock=False)
-        self._count = CONTEXT.Value("i", 0)
+    service: "Synchronized[int]"  # calls made today by every client; its lock guards both
+    client: c_int  # calls made today by this client
+    service_limit: int
+    client_limit: int
 
     def hit(self) -> bool:
-        with self._count.get_lock():
-            day = self.today().toordinal()
-            if day != self._day.value:
-                self._day.value, self._count.value = day, 0
-            if self._count.value >= self.limit:
+        with self.service.get_lock():
+            if self.service.value >= self.service_limit or self.client.value >= self.client_limit:
                 return False
-            self._count.value += 1
+            self.service.value += 1
+            self.client.value += 1
             return True
+
+
+class DailyLlmLimits:
+    """Caps on LLM calls per UTC day: one for the service, so a bill cannot run away, and one
+    per client IP, so one client cannot use up the day for everyone. Lives in the web process."""
+
+    def __init__(
+        self, service_limit: int, client_limit: int, today: Callable[[], date] = utc_today
+    ) -> None:
+        self.service_limit = service_limit
+        self.client_limit = client_limit
+        self.today = today
+        self._day = today()
+        self._service = CONTEXT.Value("i", 0)
+        # No lock per client: the service count's lock guards them all.
+        self._clients: dict[str, c_int] = {}
+
+    def budget_for(self, client: str) -> LlmBudget:
+        with self._service.get_lock():
+            if (day := self.today()) != self._day:
+                self._day, self._service.value, self._clients = day, 0, {}
+            if client not in self._clients:
+                self._clients[client] = CONTEXT.Value("i", 0, lock=False)
+            counter = self._clients[client]
+        return LlmBudget(self._service, counter, self.service_limit, self.client_limit)
 
 
 # DigitalOcean App Platform puts the client address in this header. Its X-Forwarded-For names

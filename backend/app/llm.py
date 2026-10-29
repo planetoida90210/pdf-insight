@@ -8,7 +8,7 @@ import httpx2
 
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
-from app.ratelimit import DailyCounter
+from app.ratelimit import LlmBudget
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +21,14 @@ TIMEOUT_STATUSES = {408, 504}
 
 
 class OpenRouter:
-    def __init__(self, client: httpx2.Client, model: str, budget: DailyCounter) -> None:
+    def __init__(self, client: httpx2.Client, model: str, budget: LlmBudget | None = None) -> None:
         self._client = client
         self.model = model
         self._budget = budget
+
+    def billed_to(self, budget: LlmBudget) -> "OpenRouter":
+        """This client with its calls drawn from `budget`; the connection pool is shared."""
+        return OpenRouter(self._client, self.model, budget)
 
     def generate(
         self,
@@ -37,10 +41,10 @@ class OpenRouter:
     ) -> str:
         """Returns the answer text; provider failures raise ApiError (AI_UNAVAILABLE or TIMEOUT).
 
-        Every call takes one unit of the daily budget; DAILY_LIMIT once it is used up.
-        `timeout` (seconds) replaces LLM_TIMEOUT_SECONDS for this call.
+        Every call takes one unit of the budget; DAILY_LIMIT once it is used up, and always
+        without one. `timeout` (seconds) replaces LLM_TIMEOUT_SECONDS for this call.
         """
-        if not self._budget.hit():
+        if self._budget is None or not self._budget.hit():
             logger.error("daily LLM call limit reached")
             raise ApiError(ErrorCode.DAILY_LIMIT)
         content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
@@ -90,7 +94,9 @@ class OpenRouter:
 
 
 def create_llm(
-    settings: Settings, budget: DailyCounter, transport: httpx2.BaseTransport | None = None
+    settings: Settings,
+    budget: LlmBudget | None = None,
+    transport: httpx2.BaseTransport | None = None,
 ) -> OpenRouter | None:
     """None without an API key: extraction still works, analysis answers AI_UNAVAILABLE."""
     key = settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else ""

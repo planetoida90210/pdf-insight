@@ -224,7 +224,7 @@ def test_missing_key_answers_503_but_extraction_cache_is_checked_first() -> None
 
 
 def test_daily_cap_counts_llm_calls(caplog: pytest.LogCaptureFixture) -> None:
-    client, app = make_client(FakeLlm(lambda _: llm_answer(), daily_limit=1))
+    client, app = make_client(FakeLlm(lambda _: llm_answer()), daily_llm_call_limit=1)
     assert analyze(client, "missing").status_code == 404
     seed(app, "a")
     seed(app, "b")
@@ -233,6 +233,20 @@ def test_daily_cap_counts_llm_calls(caplog: pytest.LogCaptureFixture) -> None:
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "DAILY_LIMIT"
     assert "daily LLM call limit reached" in caplog.text
+
+
+def test_one_client_cannot_use_up_the_daily_cap() -> None:
+    client, app = make_client(FakeLlm(lambda _: llm_answer()), daily_llm_calls_per_ip=1)
+    for extraction_id in ("a", "b", "c"):
+        seed(app, extraction_id)
+
+    def analyze_as(ip: str, extraction_id: str) -> int:
+        body = {"extractionId": extraction_id}
+        headers = {"DO-Connecting-IP": ip}
+        return client.post("/api/analyze", json=body, headers=headers).status_code
+
+    assert [analyze_as("1.2.3.4", "a"), analyze_as("1.2.3.4", "b")] == [200, 429]
+    assert analyze_as("5.6.7.8", "b") == 200
 
 
 def test_rate_limit_per_client() -> None:

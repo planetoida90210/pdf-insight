@@ -36,9 +36,11 @@ class Settings(BaseSettings):
     chunk_chars: int = 150_000
 
     # Per client IP; extract and analyze both count, so a file takes two. LLM spend is bounded by
-    # daily_llm_call_limit, not by this limit, so it can let a person try several files a minute.
+    # daily_llm_call_limit and, per client IP, daily_llm_calls_per_ip, not by this limit, so it
+    # can let a person try several files a minute.
     rate_limit_per_minute: int = 20
     daily_llm_call_limit: int = 1000
+    daily_llm_calls_per_ip: int = 200
     extraction_ttl_seconds: int = 900
     # DigitalOcean's edge ends every request at 100 s: both steps answer before it, with TIMEOUT
     # at the latest.
