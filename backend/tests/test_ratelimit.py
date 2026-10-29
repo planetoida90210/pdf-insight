@@ -54,6 +54,13 @@ def make_request(headers: dict[str, str]) -> Request:
     )
 
 
-def test_client_ip_uses_proxy_appended_entry() -> None:
-    assert client_ip(make_request({"X-Forwarded-For": "6.6.6.6, 1.2.3.4"})) == "1.2.3.4"
-    assert client_ip(make_request({})) == "10.0.0.1"
+def test_client_ip_reads_app_platform_header_not_forwarded_for() -> None:
+    headers = {"X-Forwarded-For": "6.6.6.6, 10.244.0.7", "DO-Connecting-IP": "1.2.3.4"}
+    assert client_ip(make_request(headers)) == "1.2.3.4"
+    assert client_ip(make_request({"X-Forwarded-For": "6.6.6.6"})) == "10.0.0.1"
+
+
+def test_client_ip_groups_ipv6_by_64_prefix() -> None:
+    first = make_request({"DO-Connecting-IP": "2001:db8:1:2::1"})
+    second = make_request({"DO-Connecting-IP": "2001:db8:1:2:ffff::9"})
+    assert client_ip(first) == client_ip(second) == "2001:db8:1:2::/64"
