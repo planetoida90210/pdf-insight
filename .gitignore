@@ -1,13 +1,10 @@
 node_modules/
 dist/
-.wrangler/
 
-# Sekrety: klucz API tylko w `wrangler secret` i lokalnym .dev.vars
+# Sekrety: klucze API tylko w zmiennych środowiskowych serwera
 .env
 .env.*
 !.env.example
-.dev.vars
-.dev.vars.*
 
 .DS_Store
 *.log

@@ -1,3 +1,4 @@
 dist/
-.wrangler/
 package-lock.json
+# Python ma własny formatter (ruff)
+backend/
