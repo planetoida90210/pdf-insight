@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { fetchHealth } from '../api/client';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { statusMessage } from '../lib/analysisMachine';
 import { addToHistory, clearHistory, readHistory, removeFromHistory } from '../lib/history';
-import type { AiProvider, AnalysisResult } from '../lib/schema';
+import type { AnalysisResult } from '../lib/schema';
 import { ErrorPanel } from './organisms/ErrorPanel';
 import { HistoryPanel } from './organisms/HistoryPanel';
 import { ProgressPanel } from './organisms/ProgressPanel';
@@ -13,17 +12,10 @@ import { UploadPanel } from './organisms/UploadPanel';
 export function App() {
   const [history, setHistory] = useState(readHistory);
   const [opened, setOpened] = useState<AnalysisResult | null>(null);
-  const [provider, setProvider] = useState<AiProvider | null>(null);
   const { state, start, retry, reset } = useAnalysis((result) => setHistory(addToHistory(result)));
   const view = opened ? 'history' : state.phase;
   const lastView = useRef(view);
   const showUpload = !opened && state.phase === 'idle';
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetchHealth(controller.signal).then(setProvider);
-    return () => controller.abort();
-  }, []);
 
   // Po zmianie widoku fokus przechodzi na nagłówek nowego panelu, żeby klawiatura i czytnik ekranu nie zostały na usuniętym przycisku.
   useEffect(() => {
@@ -45,7 +37,7 @@ export function App() {
         </h1>
       </header>
       <main className="main">
-        {showUpload && <UploadPanel provider={provider} onFile={start} />}
+        {showUpload && <UploadPanel onFile={start} />}
         {state.phase === 'running' && (
           <ProgressPanel
             fileName={state.file.name}

@@ -3,15 +3,12 @@ import { AppError, isErrorCode, retryAfterMessage, type ErrorCode } from '../lib
 import {
   analysisResultSchema,
   extractResponseSchema,
-  healthResponseSchema,
-  type AiProvider,
   type AnalysisResult,
   type ExtractResponse,
 } from '../lib/schema';
 
 // OCR i model AI potrafią działać długo, ale nie dłużej niż limit czasu po stronie serwera.
 const REQUEST_TIMEOUT_MS = 120_000;
-const HEALTH_TIMEOUT_MS = 5_000;
 
 // Kod HTTP decyduje tylko wtedy, gdy odpowiedź nie ma koperty z naszym kodem błędu.
 const CODE_BY_STATUS: Partial<Record<number, ErrorCode>> = {
@@ -52,9 +49,8 @@ async function send(
   path: string,
   init: RequestInit,
   signal: AbortSignal,
-  timeoutMs: number,
 ): Promise<{ response: Response; body: unknown }> {
-  const combined = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]);
+  const combined = AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
   try {
     const response = await fetch(apiUrl(path), { ...init, signal: combined });
     const body: unknown = await response.json().catch(() => null);
@@ -71,23 +67,14 @@ async function request<T>(
   init: RequestInit,
   schema: z.ZodType<T>,
   signal: AbortSignal,
-  timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<T> {
-  const { response, body } = await send(path, init, signal, timeoutMs);
+  const { response, body } = await send(path, init, signal);
   if (!response.ok) {
     throw errorFromResponse(response.status, body, response.headers.get('Retry-After'));
   }
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new AppError('INVALID_RESULT');
   return parsed.data;
-}
-
-// Budzi backend przy starcie i podaje dostawcę AI do informacji o prywatności. Błąd = brak nazwy.
-export function fetchHealth(signal: AbortSignal): Promise<AiProvider | null> {
-  return request('/api/health', {}, healthResponseSchema, signal, HEALTH_TIMEOUT_MS).then(
-    (health) => health.provider,
-    () => null,
-  );
 }
 
 export function extractText(file: File, signal: AbortSignal): Promise<ExtractResponse> {

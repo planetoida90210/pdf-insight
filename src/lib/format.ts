@@ -1,4 +1,4 @@
-import type { AiProvider, AnalysisResult, DocumentType } from './schema';
+import type { AnalysisResult, DocumentType } from './schema';
 
 const LOCALE = 'pl-PL';
 
@@ -11,16 +11,6 @@ export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   raport: 'Raport',
   inne: 'Inny dokument',
 };
-
-const PROVIDER_LABELS: Record<AiProvider, string> = {
-  gemini: 'Google Gemini',
-  anthropic: 'Anthropic Claude',
-};
-
-// Forma pasuje do zdania „trafia do …” w informacji o prywatności.
-export function providerLabel(provider: AiProvider | null): string {
-  return provider ? `API ${PROVIDER_LABELS[provider]}` : 'zewnętrznego API AI';
-}
 
 export function documentTitle(result: AnalysisResult): string {
   return result.document.title ?? result.document.fileName;

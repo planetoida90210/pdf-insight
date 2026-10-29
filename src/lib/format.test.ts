@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { insightFileName } from './download';
-import { formatAmount, formatDate, formatSeconds, languageName, providerLabel } from './format';
+import { formatAmount, formatDate, formatSeconds, languageName } from './format';
 
 // Intl używa twardych spacji jako separatora tysięcy, w testach porównujemy zwykłe spacje.
 const plain = (text: string) => text.replace(/\s/g, ' ');
@@ -19,11 +19,6 @@ describe('format', () => {
 
   it('formatuje czas trwania', () => {
     expect(formatSeconds(8421)).toBe('8,4 s');
-  });
-
-  it('nazywa dostawcę AI, a bez odpowiedzi serwera podaje nazwę ogólną', () => {
-    expect(providerLabel('gemini')).toBe('API Google Gemini');
-    expect(providerLabel(null)).toBe('zewnętrznego API AI');
   });
 
   it('podaje nazwę języka po polsku', () => {
