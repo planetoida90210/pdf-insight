@@ -7,8 +7,9 @@ import {
   type ExtractResponse,
 } from '../lib/schema';
 
-// OCR i model AI potrafią działać długo, ale nie dłużej niż limit czasu po stronie serwera.
-const REQUEST_TIMEOUT_MS = 120_000;
+// Longer than the server's own limits (analysis 120 s, PDF parsing 90 s): a slow request ends with
+// the server's TIMEOUT answer, and a result the server finished at its limit still arrives.
+const REQUEST_TIMEOUT_MS = 150_000;
 
 // Kod HTTP decyduje tylko wtedy, gdy odpowiedź nie ma koperty z naszym kodem błędu.
 const CODE_BY_STATUS: Partial<Record<number, ErrorCode>> = {
