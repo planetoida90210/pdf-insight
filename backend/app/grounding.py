@@ -66,10 +66,8 @@ def ground_analysis(analysis: LlmAnalysis, source: str) -> tuple[LlmAnalysis, in
 
 
 def numbers_in(text: str) -> set[float]:
-    return {
-        float(re.sub(r"\D", "", whole) + "." + (fraction or "0"))
-        for whole, fraction in NUMBER_RE.findall(text)
-    }
+    """A line break can split one number ("13\\n100,00") or separate two; both readings count."""
+    return _numbers(text) | _numbers(text.replace("\n", " "))
 
 
 def dates_in(text: str) -> set[str]:
@@ -81,3 +79,10 @@ def dates_in(text: str) -> set[str]:
             with suppress(ValueError):
                 found.add(date(int(match[year]), month_number, int(match[day])).isoformat())
     return found
+
+
+def _numbers(text: str) -> set[float]:
+    return {
+        float(re.sub(r"\D", "", whole) + "." + (fraction or "0"))
+        for whole, fraction in NUMBER_RE.findall(text)
+    }

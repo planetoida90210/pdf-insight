@@ -10,8 +10,9 @@ def test_reads_polish_and_english_number_formats() -> None:
     assert {184500.0, 12300.0, 2150.0, 1234.56, 890.0, 99.5} <= numbers_in(text)
 
 
-def test_numbers_on_separate_lines_stay_separate() -> None:
-    assert {120.0, 135.0} <= numbers_in("Użytkownicy: 120\n135")
+def test_line_break_can_split_one_number_or_separate_two() -> None:
+    text = "abonament w wysokości 13\n100,00 PLN, użytkownicy: 120\n135"
+    assert {13100.0, 120.0, 135.0} <= numbers_in(text)
 
 
 def test_reads_polish_english_and_iso_dates() -> None:
