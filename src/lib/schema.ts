@@ -2,6 +2,9 @@ import { z } from 'zod';
 
 // Lustro modeli Pydantic z backendu. Wspólne fikstury w schema/fixtures pilnują, żeby się nie rozjechały.
 
+// CSP blokuje eval. Bez tego Zod przy pierwszej walidacji próbuje new Function i przeglądarka zgłasza naruszenie CSP.
+z.config({ jitless: true });
+
 const nonEmpty = z.string().trim().min(1);
 const isoDate = z.iso.date();
 
