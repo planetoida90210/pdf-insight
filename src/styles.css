@@ -505,6 +505,7 @@ a {
 .doc-card__meta dd {
   margin: var(--space-1) 0 0;
   font-size: 0.95rem;
+  overflow-wrap: anywhere;
 }
 
 .result-block {
