@@ -13,7 +13,7 @@ from app.errors import ApiError
 from app.llm import OpenRouter
 from app.prompts import VISION_PROMPT, VISION_SYSTEM_PROMPT
 
-logger = logging.getLogger("pdf_insight")
+logger = logging.getLogger(__name__)
 
 # 300 DPI: PDF user space is 72 units per inch.
 OCR_SCALE = 300 / 72

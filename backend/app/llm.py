@@ -9,7 +9,7 @@ import httpx2
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
 
-logger = logging.getLogger("pdf_insight")
+logger = logging.getLogger(__name__)
 
 PROVIDER = "openrouter"
 BASE_URL = "https://openrouter.ai/api/v1"

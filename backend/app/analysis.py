@@ -29,7 +29,7 @@ from app.schema import (
 )
 from app.validation import parse_analysis
 
-logger = logging.getLogger("pdf_insight")
+logger = logging.getLogger(__name__)
 
 # The brief allows one retry after an invalid AI response.
 ATTEMPTS = 2

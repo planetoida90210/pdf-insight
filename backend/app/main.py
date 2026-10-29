@@ -25,7 +25,7 @@ from app.schema import AnalysisResult, AnalyzeRequest, ExtractResponse
 from app.upload import read_pdf_upload
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
-logger = logging.getLogger("pdf_insight")
+logger = logging.getLogger(__name__)
 
 # Room for the multipart framing around the file in the Content-Length check.
 MULTIPART_OVERHEAD = 64 * 1024

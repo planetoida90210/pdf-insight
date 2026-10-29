@@ -16,10 +16,11 @@ from app.errors import ApiError, ErrorCode, WarningCode, warning
 from app.injection import find_injection
 from app.llm import OpenRouter
 from app.ocr import OcrResult, ocr_page, render_page
+from app.prompts import PAGE_MARKER, PAGE_SEPARATOR
 from app.schema import AnalysisWarning, PageInfo
 from app.upload import open_pdf
 
-logger = logging.getLogger("pdf_insight")
+logger = logging.getLogger(__name__)
 
 # ~108 DPI: enough to tell a glyph from a flat background, cheap on a shared CPU.
 VISIBILITY_SCALE = 1.5
@@ -30,13 +31,13 @@ MIN_LUMINANCE_SPREAD = 15
 @dataclass(slots=True)
 class Extraction:
     file_name: str
-    pages: list[str]  # "[Strona N]\n<text>" blocks, only pages that have text
+    pages: list[str]  # PAGE_MARKER line + text, only pages that have text
     page_info: list[PageInfo]
     warnings: list[AnalysisWarning]
 
     @property
     def text(self) -> str:
-        return "\n\n".join(self.pages)
+        return PAGE_SEPARATOR.join(self.pages)
 
 
 def extract_pdf(
@@ -80,7 +81,7 @@ def _read_pages(
             result.page_info.append(info)
             result.warnings.extend(warnings)
             if text:
-                result.pages.append(f"[Strona {number}]\n{text}")
+                result.pages.append(f"{PAGE_MARKER.format(page=number)}\n{text}")
     return result
 
 

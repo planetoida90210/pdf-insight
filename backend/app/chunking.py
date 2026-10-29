@@ -3,10 +3,9 @@
 from collections import Counter
 from collections.abc import Callable, Hashable, Iterable
 
+from app.prompts import PAGE_SEPARATOR
 from app.schema import Entities, LlmAnalysis, LlmDocument
 from app.validation import dedupe
-
-PAGE_SEPARATOR = "\n\n"
 
 
 def split_into_chunks(pages: list[str], max_chars: int) -> list[str]:
