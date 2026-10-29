@@ -1,90 +1,78 @@
-from typing import Any, cast
+from typing import cast
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.cache import TtlCache
 from app.config import Settings
-from app.main import CachedExtraction, create_app
+from app.extraction import Extraction
+from app.main import create_app
 from tests.pdfs import hidden_text_pdf, text_pdf
 
-ORIGIN = "https://planetoida90210.github.io"
+PAGE = "Strona testowa umowy z wystarczajaca iloscia widocznego tekstu."
 
 
-def make_client(
-    *,
-    rate_limit_per_minute: int = 6,
-    llm_provider: str = "gemini",
-) -> tuple[TestClient, FastAPI]:
-    app = create_app(
-        Settings(
-            allowed_origins=f"{ORIGIN},http://localhost:5173",
-            max_file_mb=1,
-            rate_limit_per_minute=rate_limit_per_minute,
-            vision_fallback=False,
-            llm_provider=cast(Any, llm_provider),
-        )
-    )
+def make_client(**settings: object) -> tuple[TestClient, FastAPI]:
+    app = create_app(Settings(vision_fallback=False, max_file_mb=1, **settings))  # type: ignore[arg-type]
     return TestClient(app), app
 
 
-def test_extract_returns_page_info_and_caches() -> None:
+def upload(client: TestClient, data: bytes, content_type: str = "application/pdf") -> object:
+    return client.post("/api/extract", files={"file": ("umowa.pdf", data, content_type)})
+
+
+def test_returns_page_info_and_caches_the_text() -> None:
     client, app = make_client()
-    pdf = text_pdf("Strona testowa umowy z wystarczajaca iloscia tekstu widocznego.")
-    response = client.post(
-        "/api/extract",
-        files={"file": ("umowa.pdf", pdf, "application/pdf")},
-        headers={"Origin": ORIGIN},
-    )
-    assert response.status_code == 200
+    response = client.post("/api/extract", files={"file": ("umowa.pdf", text_pdf(PAGE))})
     body = response.json()
-    assert "extractionId" in body
-    assert body["fileName"] == "umowa.pdf"
-    assert body["pages"] == 1
-    assert body["chars"] > 0
-    assert body["pageInfo"][0]["method"] == "text"
-    assert body["pageInfo"][0]["confidence"] is None
-    assert "expiresAt" in body
-    cache = cast(TtlCache[CachedExtraction], app.state.cache)
-    cached = cache.get(body["extractionId"])
-    assert cached is not None
-    assert "Strona testowa" in cached.text
-    assert "[Strona 1]" in cached.text
-
-
-def test_extract_reports_hidden_text() -> None:
-    client, _ = make_client()
-    response = client.post(
-        "/api/extract",
-        files={"file": ("hid.pdf", hidden_text_pdf(), "application/pdf")},
-    )
     assert response.status_code == 200
-    warnings = response.json()["warnings"]
-    assert any(w["code"] == "HIDDEN_TEXT" for w in warnings)
+    assert (body["fileName"], body["pages"], body["chars"]) == ("umowa.pdf", 1, len(PAGE))
+    assert body["pageInfo"] == [
+        {"page": 1, "method": "text", "chars": len(PAGE), "confidence": None}
+    ]
+    assert body["warnings"] == []
+    cached = cast(TtlCache[Extraction], app.state.cache).get(body["extractionId"])
+    assert cached is not None
+    assert cached.pages == [f"[Strona 1]\n{PAGE}"]
 
 
-def test_extract_rate_limited() -> None:
+def test_type_is_decided_by_the_pdf_signature() -> None:
+    client, _ = make_client()
+    pdf_as_octet_stream = client.post(
+        "/api/extract", files={"file": ("umowa.pdf", text_pdf(PAGE), "application/octet-stream")}
+    )
+    assert pdf_as_octet_stream.status_code == 200
+    not_a_pdf = client.post(
+        "/api/extract", files={"file": ("x.pdf", b"PK\x03\x04", "application/pdf")}
+    )
+    assert not_a_pdf.status_code == 415
+    assert not_a_pdf.json()["error"]["code"] == "UNSUPPORTED_TYPE"
+
+
+def test_reports_hidden_text() -> None:
+    client, _ = make_client()
+    response = client.post("/api/extract", files={"file": ("h.pdf", hidden_text_pdf())})
+    assert [w["code"] for w in response.json()["warnings"]] == ["HIDDEN_TEXT"]
+
+
+def test_long_file_name_is_cut_to_the_schema_limit() -> None:
+    client, _ = make_client()
+    response = client.post("/api/extract", files={"file": ("a" * 300 + ".pdf", text_pdf(PAGE))})
+    assert response.json()["fileName"] == "a" * 255
+
+
+def test_rate_limited_with_retry_after() -> None:
     client, _ = make_client(rate_limit_per_minute=1)
-    pdf = text_pdf("Strona testowa umowy z wystarczajaca iloscia tekstu widocznego.")
-    files = {"file": ("a.pdf", pdf, "application/pdf")}
+    files = {"file": ("a.pdf", text_pdf(PAGE))}
     assert client.post("/api/extract", files=files).status_code == 200
     second = client.post("/api/extract", files=files)
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "RATE_LIMITED"
-    assert "retry-after" in second.headers
+    assert int(second.headers["retry-after"]) > 0
 
 
-def test_extract_rejects_non_pdf() -> None:
-    client, _ = make_client()
-    response = client.post(
-        "/api/extract",
-        files={"file": ("x.txt", b"not a pdf", "text/plain")},
-    )
-    assert response.status_code == 415
-    assert response.json()["error"]["code"] == "UNSUPPORTED_TYPE"
-
-
-def test_health_includes_provider() -> None:
-    _, app = make_client(llm_provider="anthropic")
-    response = TestClient(app).get("/api/health")
-    assert response.json() == {"status": "ok", "provider": "anthropic"}
+def test_time_budget_returns_504() -> None:
+    client, _ = make_client(extract_timeout_seconds=0)
+    response = client.post("/api/extract", files={"file": ("a.pdf", text_pdf(PAGE))})
+    assert response.status_code == 504
+    assert response.json()["error"]["code"] == "TIMEOUT"

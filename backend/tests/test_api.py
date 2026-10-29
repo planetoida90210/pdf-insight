@@ -29,24 +29,32 @@ def client(app: FastAPI) -> TestClient:
     return TestClient(app)
 
 
-def test_health(client: TestClient) -> None:
-    response = client.get("/api/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok", "provider": "gemini"}
+def test_health_names_the_provider(client: TestClient) -> None:
+    assert client.get("/api/health").json() == {
+        "status": "ok",
+        "provider": "openrouter",
+        "model": "anthropic/claude-haiku-5.5",
+    }
 
 
 def test_unknown_route_uses_error_envelope(client: TestClient) -> None:
     response = client.get("/api/nope")
     assert response.status_code == 404
-    assert response.json()["error"]["code"] == "NOT_FOUND"
+    assert response.json() == {"error": {"code": "NOT_FOUND", "message": "Nie znaleziono zasobu."}}
 
 
-def test_api_error_keeps_headers(client: TestClient) -> None:
+def test_invalid_body_uses_error_envelope(client: TestClient) -> None:
+    response = client.post("/api/analyze", json={"wrong": 1})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_api_error_keeps_headers_and_cors(client: TestClient) -> None:
     response = client.get("/api/limited", headers={"Origin": ORIGIN})
     assert response.status_code == 429
     assert response.headers["retry-after"] == "30"
     assert response.headers["access-control-allow-origin"] == ORIGIN
-    assert response.json()["error"]["message"].startswith("Zbyt wiele")
+    assert response.json()["error"]["message"] == "Zbyt wiele żądań. Spróbuj ponownie za chwilę."
 
 
 def test_unhandled_error_hides_details(client: TestClient) -> None:
@@ -59,11 +67,18 @@ def test_unhandled_error_hides_details(client: TestClient) -> None:
 
 def test_oversized_body_rejected_before_parsing(client: TestClient) -> None:
     response = client.post(
-        "/api/health", content=b"0" * (2 * 1024 * 1024), headers={"Origin": ORIGIN}
+        "/api/extract", content=b"0" * (2 * 1024 * 1024), headers={"Origin": ORIGIN}
     )
     assert response.status_code == 413
-    assert response.json()["error"]["code"] == "FILE_TOO_LARGE"
+    assert response.json()["error"]["message"] == "Plik jest za duży. Maksymalny rozmiar to 1 MB."
     assert response.headers["access-control-allow-origin"] == ORIGIN
+
+
+def test_body_without_declared_length_is_rejected(client: TestClient) -> None:
+    response = client.post("/api/extract", content=iter([b"%PDF-1.7"]))
+    assert "content-length" not in response.request.headers
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INVALID_REQUEST"
 
 
 def test_cors_allows_configured_origin(client: TestClient) -> None:

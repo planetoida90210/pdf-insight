@@ -1,3 +1,5 @@
+"""In-memory request limits: a sliding window per client IP and a global daily cap."""
+
 import math
 import time
 from collections import deque

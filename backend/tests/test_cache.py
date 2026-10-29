@@ -17,7 +17,6 @@ def test_entries_expire_after_ttl() -> None:
     assert cache.get("id") == "text"
     clock.now = 900
     assert cache.get("id") is None
-    assert len(cache) == 0
 
 
 def test_oldest_entry_evicted_when_full() -> None:
