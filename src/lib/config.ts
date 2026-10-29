@@ -1,5 +1,8 @@
 // Size limit from the brief (F-01); the backend checks the same limit.
 export const MAX_FILE_MB = 10;
+// PDF readers accept the `%PDF-` signature anywhere in the first 1024 bytes, and so does the
+// backend (HEADER_WINDOW in backend/app/upload.py).
+export const PDF_HEADER_BYTES = 1024;
 
 // The backend decides which pages need OCR (needs_ocr in backend/app/extraction.py) and reads
 // them itself when the browser did not. The browser reads them first, by the same values:
