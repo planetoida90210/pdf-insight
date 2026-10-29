@@ -33,9 +33,12 @@ async function loadPdfjs() {
 
 export async function openPdf(file: File): Promise<PDFDocumentProxy> {
   const pdfjs = await loadPdfjs();
+  const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
   try {
-    return await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    return await task.promise;
   } catch (error) {
+    // Każde otwarcie ma własny worker pdf.js; bez destroy() zostaje on w pamięci.
+    void task.destroy();
     if (error instanceof pdfjs.PasswordException) throw new AppError('ENCRYPTED_PDF');
     throw new AppError('INVALID_PDF');
   }
