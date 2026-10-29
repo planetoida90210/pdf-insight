@@ -232,13 +232,16 @@ def _page_warnings(page: _PageText, min_confidence: float) -> list[AnalysisWarni
 def _visible_and_hidden_text(page: Any, rendered: Image.Image, scale: float) -> tuple[str, str]:
     """Splits the text layer by what the rendered page actually shows.
 
-    Whitespace glyphs are kept on both sides so pdfplumber can lay out words and lines.
+    Whitespace glyphs are kept on both sides so pdfplumber can lay out words and lines. Glyphs
+    without a Unicode mapping are never hidden: a space among them draws nothing as well.
     """
     gray = rendered.convert("L")
     hidden = {
         id(char)
         for char in page.chars
-        if not char["text"].isspace() and not _glyph_visible(char, gray, scale)
+        if not char["text"].isspace()
+        and not UNMAPPED.fullmatch(char["text"])
+        and not _glyph_visible(char, gray, scale)
     }
     if not hidden:
         return page.extract_text().strip(), ""
