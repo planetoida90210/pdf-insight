@@ -5,8 +5,10 @@ export function toJson(result: AnalysisResult): string {
   return JSON.stringify(result, null, 2);
 }
 
+// Nazwa pochodzi od użytkownika, więc znaki niedozwolone w nazwach plików zamieniamy na „_”.
 export function insightFileName(pdfName: string): string {
-  return `${pdfName.replace(/\.pdf$/i, '')}.insight.json`;
+  const base = pdfName.replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|\p{Cc}]/gu, '_');
+  return `${base}.insight.json`;
 }
 
 export function downloadResult(result: AnalysisResult): void {
