@@ -33,6 +33,7 @@
   --focus-offset: 3px;
   --duration: 150ms;
   --page-width: 72rem;
+  --panel-padding: clamp(var(--space-4), 4vw, var(--space-5));
   --field-min-width: 9rem;
   --thumb-min-width: 7.5rem;
   --thumb-ratio: 3 / 4;
@@ -191,7 +192,7 @@ summary {
 .panel {
   display: grid;
   gap: var(--space-5);
-  padding: var(--space-5);
+  padding: var(--panel-padding);
   border: var(--line);
   background: var(--color-surface);
 }
