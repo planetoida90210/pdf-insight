@@ -1,0 +1,43 @@
+[project]
+name = "pdf-insight-backend"
+version = "0.1.0"
+description = "PDF Insight API: PDF text extraction, OCR and LLM analysis"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.162.0",
+    "pydantic-settings>=2.16.2",
+    "pypdfium2>=5.14.0",
+    "python-multipart>=0.0.32",
+    "uvicorn>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "fpdf2>=2.8.9",
+    "httpx2>=2.16.0",
+    "mypy>=2.4.1",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1",
+    "ruff>=0.17.3",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "A", "SIM", "RUF", "PT", "ASYNC"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["pypdfium2.*", "fpdf.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
