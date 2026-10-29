@@ -9,7 +9,7 @@
 ```
 GitHub Pages (React + Vite)          DigitalOcean (FastAPI, Docker)               OpenRouter
 pdf.js: walidacja, miniatury         POST /api/extract (PDF + tekst OCR)        Claude Haiku 5.5
-tesseract.js: OCR skanów       →     pdfplumber + filtr ukrytego tekstu
+tesseract.js: OCR skanów       →     pdfium + filtr ukrytego tekstu
                                      Tesseract dla stron bez tekstu OCR
                                →   POST /api/analyze {extractionId}     →     structured output
 Zod → widok, JSON, historia          walidacja Pydantic, 1 retry, grounding

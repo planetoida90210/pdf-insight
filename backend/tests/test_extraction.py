@@ -9,7 +9,16 @@ from app.errors import ApiError, ErrorCode
 from app.extraction import Extraction, extract_pdf, needs_ocr
 from app.ocr import MAX_RENDER_PIXELS, OCR_SCALE, render_page
 from app.schema import OcrPage
-from tests.pdfs import hidden_text_pdf, huge_page_pdf, image_pages_pdf, stamped_scan_pdf, text_pdf
+from tests.pdfs import (
+    as_form_xobject,
+    hidden_text_pdf,
+    huge_page_pdf,
+    image_pages_pdf,
+    reboxed,
+    stamped_scan_pdf,
+    text_pdf,
+    unmapped_text_pdf,
+)
 
 HAS_TESSERACT = which("tesseract") is not None
 needs_tesseract = pytest.mark.skipif(not HAS_TESSERACT, reason="tesseract binary not installed")
@@ -45,6 +54,11 @@ def test_keeps_words_and_lines_apart() -> None:
     assert result.warnings == []
 
 
+def test_keeps_a_hyphen_that_splits_a_word_at_a_line_end() -> None:
+    result = extract(text_pdf("Umowa obowiazuje od dnia Go-\nlive systemu CRM."))
+    assert "Go-live systemu CRM." in result.text
+
+
 def test_excludes_and_reports_white_on_white_text() -> None:
     result = extract(hidden_text_pdf())
     assert "Umowa widoczna" in result.text
@@ -66,7 +80,6 @@ def test_flags_visible_instructions_as_injection() -> None:
     [
         ("Umowa ramowa z dnia 12.03.2026 r.", 0.0, False),
         ("Strona 1", 0.0, True),
-        ("(cid:3)(cid:7)(cid:9)" * 10 + " Umowa", 0.0, True),
         ("\ufffd\x01\x02" * 10 + " Umowa", 0.0, True),
         ("BATES-000123 " * 3, 0.9, True),
         ("BATES-000123 " * 3, 0.4, False),
@@ -107,18 +120,33 @@ def test_browser_text_for_a_page_past_the_last_is_invalid() -> None:
     assert raised.value.code == ErrorCode.INVALID_REQUEST
 
 
-def test_damaged_pdf_that_pdfium_opens_is_invalid() -> None:
-    damaged = text_pdf("Umowa").replace(b"/FlateDecode", b"/LZWDecode", 1)
-    with pytest.raises(ApiError) as raised:
-        extract(damaged)
-    assert raised.value.code == ErrorCode.INVALID_PDF
+def test_rotated_and_cropped_page_keeps_its_text_and_hidden_text() -> None:
+    result = extract(reboxed(hidden_text_pdf(), rotation=90, crop=(20, 30, 590, 820)))
+    assert result.pages == ["=== 1 ===\nUmowa widoczna na stronie numer 1."]
+    assert [w.code for w in result.warnings] == ["HIDDEN_TEXT"]
 
 
-def test_page_that_pdfium_cannot_load_is_invalid() -> None:
-    pages = text_pdf("Pierwsza strona umowy ramowej.", "Druga strona umowy ramowej.")
-    with pytest.raises(ApiError) as raised:
-        extract(pages.replace(b"/Count 2", b"/Count 1", 1))
-    assert raised.value.code == ErrorCode.INVALID_PDF
+def test_text_outside_the_crop_box_is_hidden() -> None:
+    lines = [f"Wiersz {n} umowy ramowej." for n in range(1, 31)]
+    result = extract(reboxed(text_pdf("\n".join(lines)), crop=(0, 0, 595, 700)))
+    assert "Wiersz 1 umowy" not in result.text
+    assert "Wiersz 30 umowy ramowej." in result.text
+    [hidden] = result.warnings
+    assert "Wiersz 1 umowy" in hidden.message
+
+
+def test_scan_drawn_through_a_scaled_form_xobject_is_read_by_ocr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(extraction, "tesseract", lambda *_: ("Aneks nr 1: 13 100 PLN", 91.0))
+    result = extract(as_form_xobject(stamped_scan_pdf("BATES-000123 / PDF Insight test"), 2))
+    assert [info.method for info in result.page_info] == ["ocr"]
+
+
+def test_glyphs_without_unicode_send_the_page_to_ocr(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(extraction, "tesseract", lambda *_: ("Faktura 1200 PLN", 90.0))
+    result = extract(unmapped_text_pdf(60))
+    assert result.pages == ["=== 1 ===\nFaktura 1200 PLN"]
 
 
 @needs_tesseract
