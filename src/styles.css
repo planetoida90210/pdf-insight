@@ -338,6 +338,7 @@ summary {
   cursor: pointer;
 }
 
+/* Wiersze muszą się zawijać: najdłuższy z nich wyznacza minimalną szerokość siatki, czyli całej strony. */
 .json {
   max-height: var(--json-max-height);
   margin-top: var(--space-3);
@@ -345,4 +346,5 @@ summary {
   overflow: auto;
   border: var(--line);
   font: var(--text-label) / var(--leading-body) var(--font-mono);
+  white-space: pre-wrap;
 }
