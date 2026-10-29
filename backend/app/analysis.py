@@ -73,7 +73,10 @@ def _analyze_chunks(llm: OpenRouter, chunks: list[str], deadline: float) -> LlmA
     parts = _ask_each(llm, chunks, deadline)
     overview = _ask(llm, REDUCE_TASK, parts_digest(parts), deadline)
     return merge_analyses(parts).model_copy(
-        update={"summary": overview.summary, "key_points": overview.key_points}
+        update={
+            "summary_sentences": overview.summary_sentences,
+            "key_points": overview.key_points,
+        }
     )
 
 
