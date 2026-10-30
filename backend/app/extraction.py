@@ -33,6 +33,8 @@ VISIBILITY_SCALE = 1.5
 MIN_LUMINANCE_SPREAD = 15
 # Glyphs smaller than this, in points, are not meant to be read.
 MIN_GLYPH_SIZE = 1
+# A glyph box is checked over at least this many pixels in each direction.
+MIN_GLYPH_PIXELS = 4
 # A page this much covered by images, with less text than SCAN_TEXT_CHARS, is a scan with a
 # stamped header or page number on top: its content is in the image.
 SCAN_IMAGE_SHARE = 0.5
@@ -327,15 +329,18 @@ def _glyph_visible(box: pdfium_raw.FS_RECTF, to_pixels: PixelTransform, gray: Im
     if max(box.right - box.left, box.top - box.bottom) < MIN_GLYPH_SIZE:
         return False
     (x0, y0), (x1, y1) = to_pixels(box.left, box.bottom), to_pixels(box.right, box.top)
-    left, right = sorted((int(x0), int(x1)))
-    top, bottom = sorted((int(y0), int(y1)))
-    crop = (
-        max(left, 0),
-        max(top, 0),
-        min(max(right, left + 1), gray.width),
-        min(max(bottom, top + 1), gray.height),
-    )
-    if crop[0] >= crop[2] or crop[1] >= crop[3]:
+    left, right = _pixel_span(x0, x1, gray.width)
+    top, bottom = _pixel_span(y0, y1, gray.height)
+    if left >= right or top >= bottom:
         return False
-    low, high = cast(tuple[int, int], gray.crop(crop).getextrema())  # one band in mode "L"
+    crop = gray.crop((left, top, right, bottom))
+    low, high = cast(tuple[int, int], crop.getextrema())  # one band in mode "L"
     return bool(high - low >= MIN_LUMINANCE_SPREAD)
+
+
+def _pixel_span(start: float, end: float, limit: int) -> tuple[int, int]:
+    """The pixels from `start` to `end`, widened around the centre to MIN_GLYPH_PIXELS: the box of
+    a thin glyph (a minus sign, a period) can lie inside its own stroke, with no contrast in it."""
+    low, high = sorted((start, end))
+    grow = max(MIN_GLYPH_PIXELS - (high - low), 0) / 2
+    return max(int(low - grow), 0), min(int(high + grow), limit)
