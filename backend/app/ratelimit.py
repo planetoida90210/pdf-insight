@@ -1,10 +1,14 @@
-"""In-memory request limits: a sliding window per client IP and a global daily cap."""
+"""In-memory request limits: a sliding window per client IP and daily caps on LLM calls."""
 
 import ipaddress
 import math
+import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from ctypes import c_int
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 from starlette.requests import Request
@@ -46,27 +50,77 @@ def utc_today() -> date:
     return datetime.now(UTC).date()
 
 
-class DailyCounter:
-    """Global cap per UTC day; protects the LLM budget regardless of client IPs.
+# Takes one LLM call from a daily budget; False once the budget is used up.
+Charge = Callable[[], bool]
+# An extraction worker's vision calls run in threads; each worker process has its own lock.
+_ALLOWANCE_LOCK = threading.Lock()
 
-    The count lives in shared memory, so extraction workers draw from the same budget.
-    """
 
-    def __init__(self, limit: int, today: Callable[[], date] = utc_today) -> None:
-        self.limit = limit
-        self.today = today
-        self._day = CONTEXT.Value("i", today().toordinal(), lock=False)
-        self._count = CONTEXT.Value("i", 0)
+@dataclass(frozen=True, slots=True)
+class Allowance:
+    """The LLM calls one extraction worker may make, counted down in shared memory. Only the
+    worker writes it, so no lock is shared with the web process."""
+
+    left: c_int
 
     def hit(self) -> bool:
-        with self._count.get_lock():
-            day = self.today().toordinal()
-            if day != self._day.value:
-                self._day.value, self._count.value = day, 0
-            if self._count.value >= self.limit:
+        with _ALLOWANCE_LOCK:
+            if self.left.value <= 0:
                 return False
-            self._count.value += 1
+            self.left.value -= 1
             return True
+
+
+class DailyLlmLimits:
+    """Caps on LLM calls per UTC day: one for the service, so a bill cannot run away, and one
+    per client IP, so one client cannot use up the day for everyone.
+
+    The counts live in the web process only. An extraction worker gets an allowance taken out
+    of them before it starts: a worker killed at its deadline cannot leave a lock held.
+    """
+
+    def __init__(
+        self, service_limit: int, client_limit: int, today: Callable[[], date] = utc_today
+    ) -> None:
+        self.service_limit = service_limit
+        self.client_limit = client_limit
+        self.today = today
+        self._lock = threading.Lock()
+        self._day = today()
+        self._service = 0
+        self._clients: dict[str, int] = {}
+
+    def hit(self, client: str) -> bool:
+        return self._take(client, 1) == 1
+
+    @contextmanager
+    def allowance(self, client: str, calls: int) -> Iterator[Allowance]:
+        """Up to `calls` of `client`'s calls set aside for an extraction worker; the ones it
+        leaves, also when it is killed, are given back when it ends."""
+        day = self.today()
+        allowance = Allowance(CONTEXT.RawValue("i", self._take(client, calls)))
+        try:
+            yield allowance
+        finally:
+            self._give_back(client, allowance.left.value, day)
+
+    def _take(self, client: str, calls: int) -> int:
+        with self._lock:
+            if (day := self.today()) != self._day:
+                self._day, self._service, self._clients = day, 0, {}
+            used = self._clients.get(client, 0)
+            free = min(self.service_limit - self._service, self.client_limit - used)
+            granted = max(0, min(calls, free))
+            self._service += granted
+            self._clients[client] = used + granted
+            return granted
+
+    def _give_back(self, client: str, calls: int, day: date) -> None:
+        with self._lock:
+            # Yesterday's calls are no longer counted.
+            if day == self._day:
+                self._service -= calls
+                self._clients[client] -= calls
 
 
 # DigitalOcean App Platform puts the client address in this header. Its X-Forwarded-For names

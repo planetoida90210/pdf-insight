@@ -9,7 +9,7 @@
 ```
 GitHub Pages (React + Vite)          DigitalOcean (FastAPI, Docker)               OpenRouter
 pdf.js: walidacja, miniatury         POST /api/extract (PDF + tekst OCR)        Claude Haiku 5.5
-tesseract.js: OCR skanów       →     pdfplumber + filtr ukrytego tekstu
+tesseract.js: OCR skanów       →     pdfium + filtr ukrytego tekstu
                                      Tesseract dla stron bez tekstu OCR
                                →   POST /api/analyze {extractionId}     →     structured output
 Zod → widok, JSON, historia          walidacja Pydantic, 1 retry, grounding
@@ -32,11 +32,12 @@ Zod → widok, JSON, historia          walidacja Pydantic, 1 retry, grounding
 - **OCR per strona, w przeglądarce.** Serwer ma 1 współdzielony vCPU (Tesseract 3-5 s na stronę), więc skany czyta
   tesseract.js (`pol+eng`) w kilku workerach przeglądarki i wysyła tekst razem z PDF. O tym, która strona wymaga OCR
   (mało tekstu, znaki bez Unicode, obraz pod krótkim tekstem), decyduje serwer; strony bez tekstu z przeglądarki czyta
-  sam Tesseractem. Przy niskiej pewności → odczyt przez model z obrazu.
+  sam Tesseractem. Strony z najniższą pewnością OCR (do `VISION_MAX_PAGES`, domyślnie 4) czyta model z obrazu.
 - **Długie dokumenty.** Tekst > 150 000 znaków dzielony po stronach na fragmenty analizowane równolegle (do 8);
   wyniki łączone, podsumowanie pisane z całości. Ponad 2 000 000 znaków → odmowa (`TEXT_TOO_LONG`), bez pomijania stron.
 - **Bezpieczeństwo.** Klucz tylko w zmiennych DigitalOcean App Platform; CORS tylko dla domeny demo; limity: 10 MB, 200 stron,
-  20 żądań/min na IP, dzienny limit wywołań LLM; brak `dangerouslySetInnerHTML`; logi bez treści dokumentów.
+  20 żądań/min na IP, dzienny limit wywołań LLM łącznie i na IP; brak `dangerouslySetInnerHTML`; logi bez treści
+  dokumentów.
 - **Rozważane i odrzucone:** Docling, PaddleOCR (wolne na współdzielonym CPU), LangChain + baza wektorowa (brak
   przypadku użycia), Redis do limitów (jedna replika wystarcza).
 

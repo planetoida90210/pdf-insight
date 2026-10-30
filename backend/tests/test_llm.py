@@ -10,8 +10,7 @@ from app.analysis import analyze_extraction
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
 from app.llm import MAX_TOKENS, OpenRouter, create_llm
-from app.ratelimit import DailyCounter
-from tests.fakes import completion, extraction
+from tests.fakes import budget, completion, extraction
 
 KEY = "sk-or-test"
 SCHEMA = {"type": "object"}
@@ -29,9 +28,7 @@ def openrouter(*replies: httpx2.Response | Exception) -> tuple[OpenRouter, list[
             raise answer
         return answer
 
-    llm = create_llm(
-        Settings(openrouter_api_key=KEY), DailyCounter(100), httpx2.MockTransport(reply)
-    )
+    llm = create_llm(Settings(openrouter_api_key=KEY), budget(), httpx2.MockTransport(reply))
     assert llm is not None
     return llm, requests
 
@@ -168,3 +165,14 @@ def test_unusable_answer_is_retried_once_then_rejected(body: dict[str, Any]) -> 
         analyze_extraction(llm, extraction(), Settings())
     assert raised.value.code == ErrorCode.AI_INVALID_RESPONSE
     assert len(requests) == 2
+
+
+def test_client_without_a_budget_makes_no_call() -> None:
+    def refuse(_: httpx2.Request) -> httpx2.Response:
+        raise AssertionError("request sent without a budget")
+
+    llm = create_llm(Settings(openrouter_api_key=KEY), transport=httpx2.MockTransport(refuse))
+    assert llm is not None
+    with pytest.raises(ApiError) as raised:
+        llm.generate(system="System.", prompt="Tekst.")
+    assert raised.value.code == ErrorCode.DAILY_LIMIT

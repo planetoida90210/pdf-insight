@@ -1,5 +1,6 @@
 from io import BytesIO
 
+import pypdfium2 as pdfium
 from fpdf import FPDF
 from PIL import Image, ImageDraw, ImageFont
 
@@ -61,3 +62,44 @@ def stamped_scan_pdf(stamp: str) -> bytes:
     pdf.set_font("helvetica", size=10)
     pdf.cell(text=stamp)
     return bytes(pdf.output())
+
+
+def unmapped_text_pdf(length: int) -> bytes:
+    """`length` glyphs whose codes have no Unicode mapping, as with a font without ToUnicode:
+    PDF readers fall back to the raw codes, here control codes."""
+    pdf = FPDF()
+    pdf.set_font("helvetica", size=12)
+    pdf.add_page()
+    pdf.cell(text="".join(chr(1 + i % 26) for i in range(length)))
+    return bytes(pdf.output())
+
+
+def reboxed(
+    data: bytes, rotation: int = 0, crop: tuple[float, float, float, float] | None = None
+) -> bytes:
+    """The first page turned by /Rotate `rotation` and cut to the CropBox `crop`."""
+    pdf = pdfium.PdfDocument(data)
+    page = pdf[0]
+    page.set_rotation(rotation)
+    if crop:
+        page.set_cropbox(*crop)
+    return _saved(pdf)
+
+
+def as_form_xobject(data: bytes, scale: float) -> bytes:
+    """The first page drawn `scale` times larger on a new page, through a form XObject."""
+    source = pdfium.PdfDocument(data)
+    width, height = source[0].get_size()
+    pdf = pdfium.PdfDocument.new()
+    page = pdf.new_page(width * scale, height * scale)
+    form = source.page_as_xobject(0, pdf).as_pageobject()
+    form.transform(pdfium.PdfMatrix().scale(scale, scale))
+    page.insert_obj(form)
+    page.gen_content()
+    return _saved(pdf)
+
+
+def _saved(pdf: pdfium.PdfDocument) -> bytes:
+    out = BytesIO()
+    pdf.save(out)
+    return out.getvalue()

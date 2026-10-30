@@ -6,6 +6,7 @@ import unicodedata
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Annotated
 
 from fastapi import FastAPI, File, Request, Response, UploadFile
@@ -20,7 +21,7 @@ from app.config import Settings, configure_logging, error_frames, get_settings
 from app.errors import ApiError, ErrorCode
 from app.extraction import Extraction, read_pdf
 from app.llm import OpenRouter, create_llm
-from app.ratelimit import DailyCounter, SlidingWindowLimiter, client_ip
+from app.ratelimit import DailyLlmLimits, SlidingWindowLimiter, client_ip
 from app.schema import AnalysisResult, AnalyzeRequest, ExtractResponse
 from app.upload import read_ocr_upload, read_pdf_upload
 from app.worker import run_isolated
@@ -47,8 +48,8 @@ SECURITY_HEADERS = {
 
 def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
     app = FastAPI(title="PDF Insight API", docs_url=None, redoc_url=None, openapi_url=None)
-    budget = DailyCounter(limit=settings.daily_llm_call_limit)
-    llm = llm or create_llm(settings, budget)
+    limits = DailyLlmLimits(settings.daily_llm_call_limit, settings.daily_llm_calls_per_ip)
+    llm = llm or create_llm(settings)
     cache: TtlCache[Extraction] = TtlCache(ttl=settings.extraction_ttl_seconds)
     limiter = SlidingWindowLimiter(limit=settings.rate_limit_per_minute)
     extract_slots = asyncio.Semaphore(EXTRACT_CONCURRENCY)
@@ -107,24 +108,28 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
 
     @app.post("/api/extract")
     async def extract(
-        file: Annotated[UploadFile, File()], ocr: Annotated[UploadFile | None, File()] = None
+        request: Request,
+        file: Annotated[UploadFile, File()],
+        ocr: Annotated[UploadFile | None, File()] = None,
     ) -> ExtractResponse:
         file_name = _file_name(file.filename)
         # Read inside the slot: queued uploads wait in Starlette's temporary files, not in RAM.
         async with extract_slots:
             data = await read_pdf_upload(file, settings)
             ocr_pages = await read_ocr_upload(ocr, settings)
-            extraction = await asyncio.to_thread(
-                run_isolated,
-                read_pdf,
-                data,
-                file_name,
-                settings,
-                budget,
-                ocr_pages,
-                timeout=settings.extract_timeout_seconds,
-                memory_mb=settings.extract_memory_mb,
-            )
+            vision_calls = limits.allowance(client_ip(request), settings.vision_max_pages)
+            with vision_calls as allowance:
+                extraction = await asyncio.to_thread(
+                    run_isolated,
+                    read_pdf,
+                    data,
+                    file_name,
+                    settings,
+                    allowance.hit,
+                    ocr_pages,
+                    timeout=settings.extract_timeout_seconds,
+                    memory_mb=settings.extract_memory_mb,
+                )
         extraction_id = str(uuid.uuid4())
         cache.set(extraction_id, extraction)
         return ExtractResponse(
@@ -138,7 +143,7 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
         )
 
     @app.post("/api/analyze")
-    async def analyze(body: AnalyzeRequest) -> AnalysisResult:
+    async def analyze(request: Request, body: AnalyzeRequest) -> AnalysisResult:
         extraction_id = body.extraction_id
         extraction = cache.get(extraction_id)
         # An id under analysis is taken: a parallel request for it would pay for a second one.
@@ -146,10 +151,11 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
             raise ApiError(ErrorCode.EXTRACTION_NOT_FOUND)
         if llm is None:
             raise ApiError(ErrorCode.AI_UNAVAILABLE)
+        billed = llm.billed_to(partial(limits.hit, client_ip(request)))
         analyzing.add(extraction_id)
         try:
             result = await asyncio.wait_for(
-                asyncio.to_thread(analyze_extraction, llm, extraction, settings),
+                asyncio.to_thread(analyze_extraction, billed, extraction, settings),
                 timeout=settings.analyze_timeout_seconds,
             )
         except TimeoutError as error:

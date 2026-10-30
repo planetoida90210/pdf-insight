@@ -8,8 +8,6 @@ from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOG_FORMAT = "%(levelname)s %(name)s %(message)s"
-# Warnings from these libraries quote raw values from the PDF (content-stream operands, metadata).
-PDF_PARSER_LOGGERS = ("pdfminer", "pdfplumber")
 
 
 class Settings(BaseSettings):
@@ -27,6 +25,9 @@ class Settings(BaseSettings):
     ocr_min_chars: int = 25
     ocr_min_confidence: float = 60
     vision_fallback: bool = True
+    # Pages per upload that vision transcribes, all at once: each holds a rendered page and its
+    # PNG in the extraction worker's memory.
+    vision_max_pages: int = 4
     max_text_chars: int = 2_000_000
     # 150,000 characters are about 50,000 tokens: far inside Haiku 5.5's 1M context and under the
     # 100,000-token prompt size past which its input costs 5x more. A dense 200-page document
@@ -35,9 +36,11 @@ class Settings(BaseSettings):
     chunk_chars: int = 150_000
 
     # Per client IP; extract and analyze both count, so a file takes two. LLM spend is bounded by
-    # daily_llm_call_limit, not by this limit, so it can let a person try several files a minute.
+    # daily_llm_call_limit and, per client IP, daily_llm_calls_per_ip, not by this limit, so it
+    # can let a person try several files a minute.
     rate_limit_per_minute: int = 20
     daily_llm_call_limit: int = 1000
+    daily_llm_calls_per_ip: int = 200
     extraction_ttl_seconds: int = 900
     # DigitalOcean's edge ends every request at 100 s: both steps answer before it, with TIMEOUT
     # at the latest.
@@ -67,8 +70,6 @@ def get_settings() -> Settings:
 def configure_logging() -> None:
     """Sizes, timings and codes only: no document text may reach the log."""
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-    for name in PDF_PARSER_LOGGERS:
-        logging.getLogger(name).setLevel(logging.CRITICAL)
 
 
 def error_frames(error: BaseException) -> str:
