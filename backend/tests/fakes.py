@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 import httpx2
@@ -7,7 +8,7 @@ import httpx2
 from app.extraction import Extraction
 from app.llm import BASE_URL, OpenRouter
 from app.prompts import PAGE_MARKER
-from app.ratelimit import DailyLlmLimits, LlmBudget
+from app.ratelimit import Charge, DailyLlmLimits
 from app.schema import AnalysisWarning, PageInfo
 
 
@@ -42,9 +43,9 @@ def completion(content: str | None) -> dict[str, Any]:
     }
 
 
-def budget(limit: int = 100) -> LlmBudget:
-    """One client's budget, with `limit` calls for it and for the service."""
-    return DailyLlmLimits(limit, limit).budget_for("test")
+def budget(limit: int = 100) -> Charge:
+    """One client's daily budget, with `limit` calls for it and for the service."""
+    return partial(DailyLlmLimits(limit, limit).hit, "test")
 
 
 class FakeLlm(OpenRouter):

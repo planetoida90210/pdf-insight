@@ -1,8 +1,11 @@
+import os
 from datetime import date
 
+import pytest
 from starlette.requests import Request
 
-from app.ratelimit import DailyLlmLimits, LlmBudget, SlidingWindowLimiter, client_ip
+from app.errors import ApiError
+from app.ratelimit import Allowance, DailyLlmLimits, SlidingWindowLimiter, client_ip
 from app.worker import run_isolated
 
 
@@ -38,34 +41,32 @@ def test_sliding_window_forgets_idle_keys() -> None:
 def test_daily_llm_limits_cap_each_client_and_the_service() -> None:
     day = [date(2026, 10, 29)]
     limits = DailyLlmLimits(service_limit=3, client_limit=2, today=lambda: day[0])
-    a = limits.budget_for("a")
-    assert [a.hit(), a.hit(), a.hit()] == [True, True, False]
-    assert limits.budget_for("a").hit() is False
-    b = limits.budget_for("b")
-    assert [b.hit(), b.hit()] == [True, False]
+    assert [limits.hit("a"), limits.hit("a"), limits.hit("a")] == [True, True, False]
+    assert [limits.hit("b"), limits.hit("b")] == [True, False]
     day[0] = date(2026, 10, 30)
-    assert limits.budget_for("a").hit() is True
+    assert limits.hit("a") is True
 
 
-def test_a_budget_taken_before_midnight_counts_against_the_new_day() -> None:
+def spend_then_die(allowance: Allowance, calls: int) -> None:
+    for _ in range(calls):
+        allowance.hit()
+    os._exit(1)
+
+
+def test_a_killed_worker_keeps_the_calls_it_made_and_returns_the_rest() -> None:
+    limits = DailyLlmLimits(service_limit=100, client_limit=5)
+    with limits.allowance("a", 4) as allowance, pytest.raises(ApiError):
+        run_isolated(spend_then_die, allowance, 3, timeout=30, memory_mb=1024)
+    assert [limits.hit("a"), limits.hit("a"), limits.hit("a")] == [True, True, False]
+
+
+def test_an_allowance_given_back_after_midnight_leaves_the_new_day_alone() -> None:
     day = [date(2026, 10, 29)]
-    limits = DailyLlmLimits(service_limit=10, client_limit=1, today=lambda: day[0])
-    held = limits.budget_for("a")
-    assert held.hit()
-    day[0] = date(2026, 10, 30)
-    assert held.hit()
-    assert limits.budget_for("a").hit() is False
-
-
-def spend(budget: LlmBudget, calls: int) -> list[bool]:
-    return [budget.hit() for _ in range(calls)]
-
-
-def test_worker_process_draws_from_the_same_client_budget() -> None:
-    limits = DailyLlmLimits(service_limit=100, client_limit=3)
-    used = run_isolated(spend, limits.budget_for("a"), 2, timeout=30, memory_mb=1024)
-    assert used == [True, True]
-    assert spend(limits.budget_for("a"), 2) == [True, False]
+    limits = DailyLlmLimits(service_limit=100, client_limit=2, today=lambda: day[0])
+    with limits.allowance("a", 2):
+        day[0] = date(2026, 10, 30)
+        assert limits.hit("a") is True
+    assert [limits.hit("a"), limits.hit("a")] == [True, False]
 
 
 def make_request(headers: dict[str, str]) -> Request:

@@ -6,6 +6,7 @@ import unicodedata
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Annotated
 
 from fastapi import FastAPI, File, Request, Response, UploadFile
@@ -116,17 +117,19 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
         async with extract_slots:
             data = await read_pdf_upload(file, settings)
             ocr_pages = await read_ocr_upload(ocr, settings)
-            extraction = await asyncio.to_thread(
-                run_isolated,
-                read_pdf,
-                data,
-                file_name,
-                settings,
-                limits.budget_for(client_ip(request)),
-                ocr_pages,
-                timeout=settings.extract_timeout_seconds,
-                memory_mb=settings.extract_memory_mb,
-            )
+            vision_calls = limits.allowance(client_ip(request), settings.vision_max_pages)
+            with vision_calls as allowance:
+                extraction = await asyncio.to_thread(
+                    run_isolated,
+                    read_pdf,
+                    data,
+                    file_name,
+                    settings,
+                    allowance.hit,
+                    ocr_pages,
+                    timeout=settings.extract_timeout_seconds,
+                    memory_mb=settings.extract_memory_mb,
+                )
         extraction_id = str(uuid.uuid4())
         cache.set(extraction_id, extraction)
         return ExtractResponse(
@@ -148,7 +151,7 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
             raise ApiError(ErrorCode.EXTRACTION_NOT_FOUND)
         if llm is None:
             raise ApiError(ErrorCode.AI_UNAVAILABLE)
-        billed = llm.billed_to(limits.budget_for(client_ip(request)))
+        billed = llm.billed_to(partial(limits.hit, client_ip(request)))
         analyzing.add(extraction_id)
         try:
             result = await asyncio.wait_for(

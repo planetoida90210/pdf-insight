@@ -21,7 +21,7 @@ from app.injection import find_injection
 from app.llm import OpenRouter, create_llm
 from app.ocr import OCR_SCALE, render_page, render_scale, tesseract, transcribe
 from app.prompts import PAGE_MARKER, PAGE_SEPARATOR
-from app.ratelimit import LlmBudget
+from app.ratelimit import Charge
 from app.schema import AnalysisWarning, OcrPage, PageInfo
 from app.upload import open_pdf
 
@@ -70,13 +70,13 @@ def read_pdf(
     data: bytes,
     file_name: str,
     settings: Settings,
-    budget: LlmBudget,
+    charge: Charge,
     browser_ocr: dict[int, OcrPage],
 ) -> Extraction:
     """extract_pdf for the worker process, which builds its own vision client: an open HTTP
-    client cannot cross the process boundary. Its calls draw from the caller's `budget`."""
+    client cannot cross the process boundary. Its calls are taken through `charge`."""
     enabled = settings.vision_fallback and settings.openrouter_api_key
-    vision = create_llm(settings, budget) if enabled else None
+    vision = create_llm(settings, charge) if enabled else None
     return extract_pdf(data, file_name, settings, vision=vision, browser_ocr=browser_ocr)
 
 

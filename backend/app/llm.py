@@ -8,7 +8,7 @@ import httpx2
 
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
-from app.ratelimit import LlmBudget
+from app.ratelimit import Charge
 
 logger = logging.getLogger(__name__)
 
@@ -21,14 +21,15 @@ TIMEOUT_STATUSES = {408, 504}
 
 
 class OpenRouter:
-    def __init__(self, client: httpx2.Client, model: str, budget: LlmBudget | None = None) -> None:
+    def __init__(self, client: httpx2.Client, model: str, charge: Charge | None = None) -> None:
         self._client = client
         self.model = model
-        self._budget = budget
+        self._charge = charge
 
-    def billed_to(self, budget: LlmBudget) -> "OpenRouter":
-        """This client with its calls drawn from `budget`; the connection pool is shared."""
-        return OpenRouter(self._client, self.model, budget)
+    def billed_to(self, charge: Charge) -> "OpenRouter":
+        """This client with its calls taken from the budget behind `charge`; the connection pool
+        is shared."""
+        return OpenRouter(self._client, self.model, charge)
 
     def generate(
         self,
@@ -44,7 +45,7 @@ class OpenRouter:
         Every call takes one unit of the budget; DAILY_LIMIT once it is used up, and always
         without one. `timeout` (seconds) replaces LLM_TIMEOUT_SECONDS for this call.
         """
-        if self._budget is None or not self._budget.hit():
+        if self._charge is None or not self._charge():
             logger.error("daily LLM call limit reached")
             raise ApiError(ErrorCode.DAILY_LIMIT)
         content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
@@ -95,7 +96,7 @@ class OpenRouter:
 
 def create_llm(
     settings: Settings,
-    budget: LlmBudget | None = None,
+    charge: Charge | None = None,
     transport: httpx2.BaseTransport | None = None,
 ) -> OpenRouter | None:
     """None without an API key: extraction still works, analysis answers AI_UNAVAILABLE."""
@@ -109,7 +110,7 @@ def create_llm(
         timeout=settings.llm_timeout_seconds,
         transport=transport,
     )
-    return OpenRouter(client, settings.llm_model, budget)
+    return OpenRouter(client, settings.llm_model, charge)
 
 
 def _answer_text(data: dict[str, Any]) -> str:
