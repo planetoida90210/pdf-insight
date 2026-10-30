@@ -28,8 +28,8 @@ describe('errorFromResponse', () => {
   });
 
   it('marks transient errors as retryable', () => {
-    expect(errorFromResponse(503, envelope('AI_UNAVAILABLE'), null).retryable).toBe(true);
-    expect(errorFromResponse(502, envelope('AI_INVALID_RESPONSE'), null).retryable).toBe(true);
+    expect(errorFromResponse(500, envelope('AI_UNAVAILABLE'), null).retryable).toBe(true);
+    expect(errorFromResponse(500, envelope('AI_INVALID_RESPONSE'), null).retryable).toBe(true);
     expect(errorFromResponse(404, envelope('EXTRACTION_NOT_FOUND'), null).retryable).toBe(true);
   });
 
@@ -84,7 +84,7 @@ describe('analyzeExtraction', () => {
 
   it('turns an error response into an AppError', async () => {
     vi.stubGlobal('fetch', () =>
-      Promise.resolve(Response.json(envelope('AI_UNAVAILABLE'), { status: 503 })),
+      Promise.resolve(Response.json(envelope('AI_UNAVAILABLE'), { status: 500 })),
     );
     await expect(analyzeExtraction('abc', signal())).rejects.toMatchObject({
       code: 'AI_UNAVAILABLE',

@@ -88,3 +88,49 @@ def test_summary_in_another_script_than_the_document_is_an_error() -> None:
 )
 def test_summary_in_the_documents_script_passes(document: str, summary: str) -> None:
     assert parse_analysis(answer_in(summary), document)[1] == []
+
+
+HEBREW = (
+    'הסכם שירות בין חברת אורן מערכות בע"מ לבין יעל כהן לשימוש ב-Microsoft Azure.\n'
+    'התמורה החודשית תהיה 4,500 ₪ בתוספת מע"מ. תקופת ההסכם: 12 חודשים.'
+)
+
+
+@pytest.mark.parametrize(
+    ("document", "summary"),
+    [
+        # Names copied from the document are not foreign, whatever their script.
+        (
+            "株式会社さくらデザイン 御中\n請求書\nクラウド利用料 (Google Workspace) ¥24,000",
+            "株式会社さくらデザイン宛てのGoogle Workspace利用料、USD換算なしの請求書です。",
+        ),
+        # Here English outweighs Japanese, yet Japanese words not in the document still pass.
+        (
+            "請求書 Amazon Web Services Japan合同会社 ご請求金額 ¥12,000 (Amazon EC2, Amazon S3)",
+            "Amazon Web Services Japan合同会社のAmazon EC2とAmazon S3の請求書、USD建て。",
+        ),
+        (
+            "Счёт № 15 от ООО «Ромашка» за лицензии Microsoft 365",
+            "Счёт ООО «Ромашка» за лицензии Microsoft 365 на сумму 1200 USD.",
+        ),
+        # Latin next to Latin is not checked: English terms in a Polish summary pass.
+        (
+            "Umowa wdrożenia systemu CRM, SLA 99,9%, start 1 kwietnia.",
+            "Umowa dotyczy wdrożenia CRM jako software as a service z SLA i go-live w kwietniu.",
+        ),
+        # Up to three words the document lacks, like codes, are tolerated.
+        (HEBREW, "הסכם עם Microsoft Azure בסך 4,500 ₪ (כ-1,200 USD) לחודש, בתוספת VAT, בקובץ PDF."),
+    ],
+)
+def test_summary_with_names_and_codes_in_another_script_passes(document: str, summary: str) -> None:
+    assert parse_analysis(answer_in(summary), document)[1] == []
+
+
+def test_more_words_in_another_script_than_the_tolerance_is_an_error() -> None:
+    summary = "הסכם עם Microsoft Azure בסך 4,500 ₪ (כ-1,200 USD) לחודש, בתוספת VAT, בקובץ PDF, SLA."
+    _, errors = parse_analysis(answer_in(summary), HEBREW)
+    assert errors == [
+        "summarySentences and keyPoints use words in another script than the document's HEBREW "
+        "script that the document does not contain (pdf, sla, usd, vat): write them in the "
+        "language of document.language"
+    ]

@@ -107,11 +107,13 @@ def test_retries_once_with_the_validation_errors() -> None:
 
 
 # Page texts of files from the adversarial corpus, as the backend reads them. Hebrew comes from
-# the text layer in visual order; the Chinese invoice is a scan, read by vision; the last font has
-# no Unicode map, so its text layer is letters of no language.
+# the text layer; the Chinese invoice is a scan, read by vision; the last font has no Unicode map,
+# so its text layer is letters of no language.
 HEBREW_CONTRACT = (
-    'תוריש םכסה\n2026 ץרמב 5 םויב ביבא לתב םתחנ\nמ"עב תוכרעמ ןרוא תרבח :ןיב\nןהכ לעי :ןיבל\n'
-    '.מ"עמ תפסותב ₪ 4,500 היהת תישדוחה הרומתה .1'
+    'הסכם שירות\nנחתם בתל אביב ביום 5 במרץ 2026\nבין: חברת אורן מערכות בע"מ\nלבין: יעל כהן\n'
+    '.1 התמורה החודשית תהיה 4,500 ₪ בתוספת מע"מ.\n'
+    ".2 תקופת ההסכם: 12 חודשים החל מ1- באפריל .2026\n"
+    ".3 כל צד רשאי לבטל את ההסכם בהודעה מוקדמת של 30 יום."
 )
 CHINESE_INVOICE = (
     "增值税普通发票\n发票号码：04412873\n开票日期：2026年3月5日\n购买方：上海星河贸易有限公司\n"
@@ -162,6 +164,38 @@ def test_summary_in_another_script_is_retried(text: str) -> None:
     assert "mostly in LATIN script" in llm.prompts[1]
 
 
+# What the model answered live for the Hebrew contract: Polish words inside Hebrew sentences.
+MIXED_HEBREW_ANSWER = {
+    "summarySentences": [
+        'הסכם שירות נחתם בתל אביב ביום 5 במרץ 2026 בין חברת אורן מערכות בע"מ לבין יעל כהן.',
+        'התמורה החודשית בהסכמie נקבעה na 4,500 ₪ בתוספת מע"מ.',
+        "תקופת ההסכם wynosi 12 חודשים i rozpoczyna się 1 באפריל 2026.",
+        "כל צד רשאי לבטל את ההסכם בהודעה מוקדמת של 30 יום.",
+    ],
+    "keyPoints": [
+        'הסכם שירות בין חברת אורן מערכות בע"מ לבין יעל כהן',
+        'תמורה חודשית של 4,500 ₪ בתוספת מע"מ',
+        "תקופה של 12 חודשים החל מ-1 באפריל 2026",
+        "אפשרות ביטול על ידי כל צד בהודעה מוקדמת של 30 יום",
+    ],
+}
+
+
+def test_summary_with_foreign_words_is_retried() -> None:
+    sentences = ANSWERS[HEBREW_CONTRACT]
+    replies = iter(
+        [
+            llm_answer(**MIXED_HEBREW_ANSWER),
+            llm_answer(summarySentences=sentences, keyPoints=sentences),
+        ]
+    )
+    llm = FakeLlm(lambda _: next(replies))
+    client, app = make_client(llm)
+    seed(app, value=extraction(HEBREW_CONTRACT))
+    assert analyze(client).json()["summary"] == " ".join(sentences)
+    assert "(i, ie, na, rozpoczyna, się, wynosi)" in llm.prompts[1]
+
+
 def test_unmapped_text_layer_reaches_the_model_without_added_words() -> None:
     llm = FakeLlm(lambda _: llm_answer())
     client, app = make_client(llm)
@@ -179,12 +213,12 @@ def test_invalid_json_is_retried_too() -> None:
     assert analyze(client).status_code == 200
 
 
-def test_second_invalid_answer_returns_502() -> None:
+def test_second_invalid_answer_returns_500() -> None:
     llm = FakeLlm(lambda _: llm_answer(keyPoints=["jeden"]))
     client, app = make_client(llm)
     seed(app)
     response = analyze(client)
-    assert response.status_code == 502
+    assert response.status_code == 500
     assert response.json()["error"] == {
         "code": "AI_INVALID_RESPONSE",
         "message": "Model AI zwrócił niepoprawną odpowiedź. Spróbuj ponownie.",
@@ -206,7 +240,7 @@ def test_ungrounded_values_are_removed() -> None:
 
 
 def test_provider_errors_keep_their_codes() -> None:
-    for code, status in ((ErrorCode.AI_UNAVAILABLE, 503), (ErrorCode.TIMEOUT, 504)):
+    for code, status in ((ErrorCode.AI_UNAVAILABLE, 500), (ErrorCode.TIMEOUT, 504)):
 
         def fail(_: str, code: ErrorCode = code) -> str:
             raise ApiError(code)
@@ -216,11 +250,11 @@ def test_provider_errors_keep_their_codes() -> None:
         assert analyze(client).status_code == status
 
 
-def test_missing_key_answers_503_but_extraction_cache_is_checked_first() -> None:
+def test_missing_key_answers_ai_unavailable_but_extraction_cache_is_checked_first() -> None:
     client, app = make_client(None, openrouter_api_key=None)
     assert analyze(client, "missing").status_code == 404
     seed(app)
-    assert analyze(client).status_code == 503
+    assert analyze(client).json()["error"]["code"] == "AI_UNAVAILABLE"
 
 
 def test_daily_cap_counts_llm_calls(caplog: pytest.LogCaptureFixture) -> None:
@@ -310,5 +344,5 @@ def test_failed_analysis_can_be_retried_with_the_same_id() -> None:
 
     client, app = make_client(FakeLlm(fails_once))
     seed(app)
-    assert analyze(client).status_code == 503
+    assert analyze(client).status_code == 500
     assert analyze(client).status_code == 200

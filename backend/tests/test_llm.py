@@ -10,7 +10,7 @@ from app.analysis import analyze_extraction
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
 from app.llm import MAX_TOKENS, OpenRouter, create_llm
-from tests.fakes import budget, completion, extraction
+from tests.fakes import budget, completion, extraction, llm_answer
 
 KEY = "sk-or-test"
 SCHEMA = {"type": "object"}
@@ -148,16 +148,37 @@ def test_provider_failures_map_to_api_errors(
     assert raised.value.code == code
 
 
+def refusal(provider: str) -> dict[str, Any]:
+    """OpenRouter's reply when the provider's content filter withholds the answer."""
+    body = completion("")
+    body["provider"] = provider
+    body["choices"][0]["finish_reason"] = "content_filter"
+    return body
+
+
+def test_content_filter_retries_on_another_provider() -> None:
+    llm, requests = openrouter(
+        httpx2.Response(200, json=refusal("Azure")),
+        httpx2.Response(200, json=completion(llm_answer())),
+    )
+    analyze_extraction(llm, extraction(), Settings())
+    first, retry = (sent(request) for request in requests)
+    assert first["provider"] == {"require_parameters": True}
+    assert retry["provider"] == {"require_parameters": True, "ignore": ["Azure"]}
+    assert retry["messages"] == first["messages"]
+
+
 @pytest.mark.parametrize(
     "body",
     [
+        refusal("Azure"),
         completion(None),
         completion(""),
         completion("not json"),
         {"id": "gen-test", "choices": []},
         {"choices": [{"message": {"content": [{"type": "text", "text": "{}"}]}}]},
     ],
-    ids=["null", "empty", "not-json", "no-choices", "content-parts"],
+    ids=["content-filter", "null", "empty", "not-json", "no-choices", "content-parts"],
 )
 def test_unusable_answer_is_retried_once_then_rejected(body: dict[str, Any]) -> None:
     llm, requests = openrouter(*(httpx2.Response(200, json=body) for _ in range(2)))
