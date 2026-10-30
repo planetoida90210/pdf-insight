@@ -50,8 +50,9 @@ def amount_in(value: float, text: str) -> bool:
 
 
 def integers_in(text: str) -> set[int]:
-    """Every run of digits as a number; int() reads the decimal digits of any script."""
-    return {int(digits) for digits in re.findall(r"\d+", text)}
+    """Every run of up to four digits (a year or a day) as a number; int() reads the decimal
+    digits of any script. Longer runs cannot be either, and int() refuses runs past 4300 digits."""
+    return {int(digits) for digits in re.findall(r"(?<!\d)\d{1,4}(?!\d)", text)}
 
 
 def date_in(iso_date: str, integers: set[int]) -> bool:

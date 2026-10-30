@@ -86,6 +86,10 @@ def test_rejects_a_date_whose_year_or_day_is_not_in_the_text() -> None:
     assert not date_in("2026-03-15", integers)
 
 
+def test_a_digit_run_past_the_int_limit_is_not_read_as_a_number() -> None:
+    assert integers_in("1" * 5000 + " 12.03.2026") == {12, 3, 2026}
+
+
 def test_drops_ungrounded_values_and_counts_them() -> None:
     analysis = LlmAnalysis.model_validate(
         json.loads(
