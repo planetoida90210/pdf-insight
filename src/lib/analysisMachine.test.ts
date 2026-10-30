@@ -1,3 +1,4 @@
+import type { Worker } from 'tesseract.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import umowa from '../../schema/fixtures/valid/umowa.json';
 import { analyzeExtraction, extractText } from '../api/client';
@@ -11,13 +12,17 @@ import {
   type Run,
 } from './analysisMachine';
 import { AppError } from './errors';
-import { readScannedPages, type OcrPage } from './ocr';
+import { readScannedPages, startOcrWorker, stopOcrWorker, type OcrPage } from './ocr';
 import { validatePdf } from './pdf';
 import { analysisResultSchema, type ExtractResponse } from './schema';
 
 vi.mock('../api/client', () => ({ extractText: vi.fn(), analyzeExtraction: vi.fn() }));
 vi.mock('./pdf', () => ({ validatePdf: vi.fn() }));
-vi.mock('./ocr', () => ({ readScannedPages: vi.fn() }));
+vi.mock('./ocr', () => ({
+  readScannedPages: vi.fn(),
+  startOcrWorker: vi.fn(),
+  stopOcrWorker: vi.fn(),
+}));
 
 const file = new File(['%PDF-1.4'], 'umowa.pdf', { type: 'application/pdf' });
 const result = analysisResultSchema.parse(umowa);
@@ -33,6 +38,7 @@ const extraction = (extractionId: string): ExtractResponse => ({
 const notFound = new AppError('EXTRACTION_NOT_FOUND');
 
 const ocrPages: OcrPage[] = [{ page: 11, text: 'Aneks nr 1', confidence: 91 }];
+const ocrWorker = Promise.resolve({} as Worker);
 
 const running: AnalysisState = {
   phase: 'running',
@@ -99,6 +105,8 @@ describe('runPipeline', () => {
     actions.length = 0;
     vi.mocked(validatePdf).mockReset().mockResolvedValue();
     vi.mocked(readScannedPages).mockReset().mockResolvedValue(ocrPages);
+    vi.mocked(startOcrWorker).mockReset().mockReturnValue(ocrWorker);
+    vi.mocked(stopOcrWorker).mockReset();
     vi.mocked(extractText).mockReset().mockResolvedValue(extraction('e1'));
     vi.mocked(analyzeExtraction).mockReset().mockResolvedValue(result);
   });
@@ -114,8 +122,30 @@ describe('runPipeline', () => {
     expect(analyzeExtraction).toHaveBeenCalledWith('e1', signal);
   });
 
+  it('starts the OCR worker before the file checks and ends it with the run', async () => {
+    await runPipeline({ file, step: 0, extraction: null }, new AbortController().signal, dispatch);
+    const [started] = vi.mocked(startOcrWorker).mock.invocationCallOrder;
+    const [checked] = vi.mocked(validatePdf).mock.invocationCallOrder;
+    expect(started).toBeLessThan(checked ?? 0);
+    expect(startOcrWorker).toHaveBeenCalledOnce();
+    expect(readScannedPages).toHaveBeenCalledWith(
+      file,
+      ocrWorker,
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(stopOcrWorker).toHaveBeenCalledWith(ocrWorker);
+  });
+
+  it('ends the OCR worker when the file checks fail', async () => {
+    vi.mocked(validatePdf).mockRejectedValue(new AppError('INVALID_PDF'));
+    await runPipeline({ file, step: 0, extraction: null }, new AbortController().signal, dispatch);
+    expect(readScannedPages).not.toHaveBeenCalled();
+    expect(stopOcrWorker).toHaveBeenCalledWith(ocrWorker);
+  });
+
   it('reports the OCR progress and sends the file without the OCR text after an OCR failure', async () => {
-    vi.mocked(readScannedPages).mockImplementation(async (_, __, onProgress) => {
+    vi.mocked(readScannedPages).mockImplementation(async (_, __, ___, onProgress) => {
       onProgress(1, 2);
       throw new Error('worker failed to load');
     });
@@ -131,6 +161,7 @@ describe('runPipeline', () => {
     await runPipeline(run, new AbortController().signal, dispatch);
     expect(validatePdf).not.toHaveBeenCalled();
     expect(extractText).not.toHaveBeenCalled();
+    expect(startOcrWorker).not.toHaveBeenCalled();
     expect(types()).toEqual(['start', 'analyzing', 'done']);
   });
 

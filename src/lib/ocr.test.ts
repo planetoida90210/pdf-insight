@@ -1,6 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { createWorker } from 'tesseract.js';
+import { describe, expect, it, vi } from 'vitest';
 import { MAX_OCR_WORKERS, MAX_RENDER_PIXELS, OCR_DPI } from './config';
-import { needsOcr, ocrScale, pageConfidence, workerCount } from './ocr';
+import {
+  needsOcr,
+  ocrScale,
+  pageConfidence,
+  readInParallel,
+  startOcrWorker,
+  workerCount,
+} from './ocr';
+
+vi.mock('tesseract.js', () => ({ createWorker: vi.fn(), OEM: { LSTM_ONLY: 1 } }));
 
 const TEXT = 'Umowa ramowa nr 14/2026 zawarta 12 marca 2026 r. ';
 const page = (text: string, imageShare = 0) => ({ text, imageShare });
@@ -46,5 +56,75 @@ describe('pageConfidence', () => {
     expect(pageConfidence([96, 95, 93, 91])).toBe(100);
     expect(pageConfidence([30, 12])).toBe(0);
     expect(pageConfidence([])).toBe(0);
+  });
+});
+
+describe('readInParallel', () => {
+  // Readers numbered from 1 in start order; `read` gets the page and the reader's number.
+  const readers = (read: (page: number, reader: number) => Promise<number>) => {
+    const stopped: number[] = [];
+    let started = 0;
+    const start = async () => {
+      const reader = (started += 1);
+      return { read: (page: number) => read(page, reader), stop: () => stopped.push(reader) };
+    };
+    return { start, stopped, started: () => started };
+  };
+  const signal = new AbortController().signal;
+  const fail = () => Promise.reject(new Error('RuntimeError: Aborted(OOM)'));
+
+  it('reads every page, reports progress and ends every worker', async () => {
+    const { start, stopped } = readers(async (page) => page);
+    const progress: number[] = [];
+    const pages = await readInParallel([1, 2, 3, 4], 2, start, signal, (done) =>
+      progress.push(done),
+    );
+    expect(pages.sort()).toEqual([1, 2, 3, 4]);
+    expect(progress).toEqual([1, 2, 3, 4]);
+    expect(stopped.sort()).toEqual([1, 2]);
+  });
+
+  it('reads a failed page once more with a new worker', async () => {
+    const { start, stopped } = readers(async (page, reader) =>
+      page === 2 && reader === 1 ? fail() : page,
+    );
+    await expect(readInParallel([1, 2, 3], 1, start, signal, () => {})).resolves.toEqual([1, 2, 3]);
+    expect(stopped).toEqual([1, 2]);
+  });
+
+  it('leaves a page that fails twice to the backend and reads the rest', async () => {
+    const { start, started } = readers(async (page) => (page === 2 ? fail() : page));
+    await expect(readInParallel([1, 2, 3], 1, start, signal, () => {})).resolves.toEqual([1, 3]);
+    expect(started()).toBe(3);
+  });
+
+  it('leaves the pages to the other workers when one cannot start', async () => {
+    const { start } = readers(async (page) => page);
+    const flaky = vi.fn(start).mockRejectedValueOnce(new Error('NetworkError'));
+    const pages = await readInParallel([1, 2, 3], 2, flaky, signal, () => {});
+    expect(pages).toEqual([1, 2, 3]);
+  });
+
+  it('ends the wait and the workers at once on a cancel', async () => {
+    const controller = new AbortController();
+    let reading = 0;
+    const { start, stopped } = readers(() => {
+      reading += 1;
+      return new Promise(() => {});
+    });
+    const pages = readInParallel([1, 2, 3], 2, start, controller.signal, () => {});
+    await vi.waitFor(() => expect(reading).toBe(2));
+    controller.abort(new Error('cancelled'));
+    await expect(pages).rejects.toThrow('cancelled');
+    expect(stopped.sort()).toEqual([1, 2]);
+  });
+});
+
+describe('startOcrWorker', () => {
+  it('fails no earlier than the reader that awaits it', async () => {
+    vi.mocked(createWorker).mockRejectedValue(new Error('NetworkError'));
+    const worker = startOcrWorker();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect(worker).rejects.toThrow('NetworkError');
   });
 });
