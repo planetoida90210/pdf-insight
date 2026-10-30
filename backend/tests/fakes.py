@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
@@ -41,6 +42,16 @@ def completion(content: str | None) -> dict[str, Any]:
         ],
         "usage": {"prompt_tokens": 100, "completion_tokens": 50},
     }
+
+
+@dataclass
+class FakeClock:
+    """A clock that moves only when the test sets `now`."""
+
+    now: float = 0.0
+
+    def __call__(self) -> float:
+        return self.now
 
 
 def budget(limit: int = 100) -> Charge:
