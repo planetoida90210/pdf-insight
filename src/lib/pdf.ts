@@ -110,15 +110,19 @@ export async function readPageContent(page: PDFPageProxy): Promise<PageContent> 
   };
 }
 
+function drawPage(page: PDFPageProxy, canvas: HTMLCanvasElement, scale: number): RenderTask {
+  const viewport = page.getViewport({ scale });
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+  return page.render({ canvas, viewport });
+}
+
 export async function renderPageImage(
   page: PDFPageProxy,
   scale: number,
 ): Promise<HTMLCanvasElement> {
-  const viewport = page.getViewport({ scale });
   const canvas = document.createElement('canvas');
-  canvas.width = Math.floor(viewport.width);
-  canvas.height = Math.floor(viewport.height);
-  await page.render({ canvas, viewport }).promise;
+  await drawPage(page, canvas, scale).promise;
   return canvas;
 }
 
@@ -128,10 +132,6 @@ export function renderPage(
   canvas: HTMLCanvasElement,
   cssWidth: number,
 ): RenderTask {
-  const base = page.getViewport({ scale: 1 });
-  const scale = (cssWidth / base.width) * window.devicePixelRatio;
-  const viewport = page.getViewport({ scale });
-  canvas.width = Math.floor(viewport.width);
-  canvas.height = Math.floor(viewport.height);
-  return page.render({ canvas, viewport });
+  const { width } = page.getViewport({ scale: 1 });
+  return drawPage(page, canvas, (cssWidth / width) * window.devicePixelRatio);
 }
