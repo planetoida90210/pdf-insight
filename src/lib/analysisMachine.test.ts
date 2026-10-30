@@ -160,6 +160,15 @@ describe('runPipeline', () => {
     expect(types()).toEqual(['start']);
   });
 
+  it('turns a file the browser cannot read into FILE_UNREADABLE', async () => {
+    vi.mocked(validatePdf).mockRejectedValue(new DOMException('gone', 'NotReadableError'));
+    await runPipeline({ file, step: 0, extraction: null }, new AbortController().signal, dispatch);
+    expect(actions.at(-1)).toMatchObject({
+      type: 'fail',
+      error: { code: 'FILE_UNREADABLE', retryable: false },
+    });
+  });
+
   it('turns an unknown exception into INTERNAL', async () => {
     vi.mocked(validatePdf).mockRejectedValue(new TypeError('chunk load failed'));
     await runPipeline({ file, step: 0, extraction: null }, new AbortController().signal, dispatch);

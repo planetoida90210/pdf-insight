@@ -1,6 +1,7 @@
 import { MAX_FILE_MB } from './config';
 
-// Codes from the backend's error envelope plus the frontend's own (NETWORK, INVALID_RESULT, ABORTED).
+// Codes from the backend's error envelope plus the frontend's own (NETWORK, INVALID_RESULT, ABORTED,
+// FILE_UNREADABLE).
 const MESSAGES = {
   FILE_TOO_LARGE: `Plik ma ponad ${MAX_FILE_MB} MB.`,
   UNSUPPORTED_TYPE: 'To nie jest plik PDF.',
@@ -21,6 +22,7 @@ const MESSAGES = {
   NETWORK: 'Brak połączenia z serwerem.',
   INVALID_RESULT: 'Wynik jest niezgodny ze schematem.',
   ABORTED: 'Analiza anulowana.',
+  FILE_UNREADABLE: 'Przeglądarka nie może odczytać tego pliku.',
 } as const;
 
 export type ErrorCode = keyof typeof MESSAGES;
@@ -35,7 +37,12 @@ const FINAL_CODES: ReadonlySet<ErrorCode> = new Set([
   'TEXT_TOO_LONG',
   'NO_TEXT',
   'DAILY_LIMIT',
+  'FILE_UNREADABLE',
 ]);
+
+// Reading a file that was moved or deleted after it was picked, or a cloud placeholder, rejects
+// with one of these.
+const FILE_READ_ERRORS: ReadonlySet<string> = new Set(['NotReadableError', 'NotFoundError']);
 
 export function isErrorCode(value: string): value is ErrorCode {
   return Object.hasOwn(MESSAGES, value);
@@ -55,4 +62,12 @@ export class AppError extends Error {
     this.code = code;
     this.retryable = !FINAL_CODES.has(code);
   }
+}
+
+export function toAppError(error: unknown): AppError {
+  if (error instanceof AppError) return error;
+  if (error instanceof DOMException && FILE_READ_ERRORS.has(error.name)) {
+    return new AppError('FILE_UNREADABLE');
+  }
+  return new AppError('INTERNAL');
 }
