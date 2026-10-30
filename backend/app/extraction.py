@@ -161,6 +161,9 @@ def _read_page(
 ) -> _PageText:
     """The visible text layer, or the page's OCR text when it needs OCR: the browser's if it
     sent one, else Tesseract's."""
+    if 0 in page.get_size():
+        # A crop box outside the media box leaves nothing to show, and nothing to render.
+        return _PageText(PageInfo(page=number, method="text", chars=0, confidence=None), "", "")
     visible, hidden = _visible_and_hidden_text(page)
     if not needs_ocr(visible, _image_share(page), settings.ocr_min_chars):
         info = PageInfo(page=number, method="text", chars=len(visible), confidence=None)

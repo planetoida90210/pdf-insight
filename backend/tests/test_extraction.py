@@ -135,6 +135,12 @@ def test_text_outside_the_crop_box_is_hidden() -> None:
     assert "Wiersz 1 umowy" in hidden.message
 
 
+def test_page_cropped_to_nothing_is_blank() -> None:
+    pages = text_pdf("Umowa ramowa z dnia 12.03.2026 r.", "Druga strona umowy ramowej z aneksem.")
+    result = extract(reboxed(pages, crop=(1000, 1000, 2000, 2000)))
+    assert result.pages == ["=== 2 ===\nDruga strona umowy ramowej z aneksem."]
+
+
 def test_scan_drawn_through_a_scaled_form_xobject_is_read_by_ocr(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
