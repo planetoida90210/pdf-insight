@@ -72,7 +72,7 @@ Testy: `npm test`, `cd backend && uv run pytest`.
 | `LLM_MODEL`          | backend  | domyślnie `anthropic/claude-haiku-5.5`                      |
 | `ALLOWED_ORIGINS`    | backend  | dozwolone originy CORS                                      |
 
-Pozostałe limity (rozmiar, strony, OCR, rate limit) z wartościami domyślnymi: `backend/.env.example`.
+Pozostałe ustawienia (limity, OCR, vision, fragmenty, timeouty) z wartościami domyślnymi: `backend/.env.example`.
 
 ## Znane ograniczenia
 
