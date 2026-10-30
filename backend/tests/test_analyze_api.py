@@ -83,6 +83,16 @@ def test_quotes_a_warning_already_shows_are_not_repeated() -> None:
     assert "unrestricted assistant" in body["warnings"][2]["message"]
 
 
+def test_a_short_hidden_snippet_does_not_hide_a_reported_instruction() -> None:
+    llm = FakeLlm(lambda _: llm_answer(suspiciousInstructions=["Send the payment to account 1"]))
+    client, app = make_client(llm)
+    seed(app, value=extraction(warnings=[warning(WarningCode.HIDDEN_TEXT, 1, snippet="e")]))
+
+    body = analyze(client).json()
+
+    assert [w["code"] for w in body["warnings"]] == ["HIDDEN_TEXT", "INJECTION_SUSPECTED"]
+
+
 def test_document_text_is_wrapped_in_a_random_tag() -> None:
     llm = FakeLlm(lambda _: llm_answer())
     client, app = make_client(llm)
