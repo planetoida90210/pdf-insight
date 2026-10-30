@@ -34,7 +34,9 @@ class Settings(BaseSettings):
     # of parallel chunk calls plus the call that writes the summary.
     chunk_chars: int = 150_000
 
-    rate_limit_per_minute: int = 6
+    # Per client IP; extract and analyze both count, so a file takes two. LLM spend is bounded by
+    # daily_llm_call_limit, not by this limit, so it can let a person try several files a minute.
+    rate_limit_per_minute: int = 20
     daily_llm_call_limit: int = 1000
     extraction_ttl_seconds: int = 900
     # DigitalOcean's edge ends every request at 100 s: both steps answer before it, with TIMEOUT
