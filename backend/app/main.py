@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 # Room for the multipart framing around the parts in the Content-Length check.
 MULTIPART_OVERHEAD = 64 * 1024
-# One extraction with OCR peaks near 300 MiB (parser process plus Tesseract), so a second one
-# would not fit in a 512 MiB instance; on one shared vCPU it would not finish sooner either.
+# On one shared vCPU a second extraction would not finish sooner, and each one with OCR peaks
+# near 300 MiB (parser process plus Tesseract).
 EXTRACT_CONCURRENCY = 1
 # The API answers JSON only: nothing in a response may be rendered, framed, sniffed or cached.
 SECURITY_HEADERS = {
