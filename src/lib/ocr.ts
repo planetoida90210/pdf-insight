@@ -54,16 +54,21 @@ export function ocrScale(width: number, height: number): number {
 
 // Starts a tesseract.js worker. Its download and start-up are what a scan waits for before the
 // first page is read, so the pipeline starts one as soon as a file is chosen.
-export async function startOcrWorker(): Promise<Worker> {
-  const { createWorker, OEM } = await import('tesseract.js');
+export function startOcrWorker(): Promise<Worker> {
   const assets = `${import.meta.env.BASE_URL}${OCR_ASSETS_DIR}/`;
-  return createWorker(OCR_LANGS, OEM.LSTM_ONLY, {
-    workerPath: `${assets}worker.min.js`,
-    corePath: assets,
-    langPath: assets,
-    workerBlobURL: false,
-    cacheMethod: 'none',
-  });
+  const worker = import('tesseract.js').then(({ createWorker, OEM }) =>
+    createWorker(OCR_LANGS, OEM.LSTM_ONLY, {
+      workerPath: `${assets}worker.min.js`,
+      corePath: assets,
+      langPath: assets,
+      workerBlobURL: false,
+      cacheMethod: 'none',
+    }),
+  );
+  // It can fail while the file is still being checked, before a reader awaits it. The reader
+  // still gets the rejection; this only keeps it from being reported as unhandled meanwhile.
+  worker.catch(() => {});
+  return worker;
 }
 
 // Ends a worker, also one still starting. A worker that failed to start has nothing to end.

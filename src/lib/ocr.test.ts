@@ -1,6 +1,16 @@
+import { createWorker } from 'tesseract.js';
 import { describe, expect, it, vi } from 'vitest';
 import { MAX_OCR_WORKERS, MAX_RENDER_PIXELS, OCR_DPI } from './config';
-import { needsOcr, ocrScale, pageConfidence, readInParallel, workerCount } from './ocr';
+import {
+  needsOcr,
+  ocrScale,
+  pageConfidence,
+  readInParallel,
+  startOcrWorker,
+  workerCount,
+} from './ocr';
+
+vi.mock('tesseract.js', () => ({ createWorker: vi.fn(), OEM: { LSTM_ONLY: 1 } }));
 
 const TEXT = 'Umowa ramowa nr 14/2026 zawarta 12 marca 2026 r. ';
 const page = (text: string, imageShare = 0) => ({ text, imageShare });
@@ -107,5 +117,14 @@ describe('readInParallel', () => {
     controller.abort(new Error('cancelled'));
     await expect(pages).rejects.toThrow('cancelled');
     expect(stopped.sort()).toEqual([1, 2]);
+  });
+});
+
+describe('startOcrWorker', () => {
+  it('fails no earlier than the reader that awaits it', async () => {
+    vi.mocked(createWorker).mockRejectedValue(new Error('NetworkError'));
+    const worker = startOcrWorker();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect(worker).rejects.toThrow('NetworkError');
   });
 });
