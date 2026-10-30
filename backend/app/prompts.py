@@ -32,6 +32,7 @@ the document uses another one.
 - amounts: value as a plain number ("184 500,00 zł" is 184500), currency as an ISO 4217 code \
 (zł is PLN), context: what the amount is for.
 - dates: the important calendar dates as YYYY-MM-DD, each with its context.
+- entities.organizations: companies and institutions only, not their products or services.
 - Copy names, numbers and dates exactly as written; do not correct inconsistencies.
 - JSON keys are English; string values stay in the document's language.
 """
