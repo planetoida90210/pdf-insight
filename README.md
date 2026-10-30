@@ -57,7 +57,7 @@ uv run uvicorn app.main:app --reload --port 8000
 # frontend (w katalogu głównym)
 cp .env.example .env          # VITE_API_URL=http://localhost:8000
 npm ci
-npm run dev
+npm run dev                   # OCR w przeglądarce działa tylko po npm run build
 ```
 
 Testy: `npm test`, `cd backend && uv run pytest`.
@@ -75,12 +75,6 @@ Pozostałe limity (rozmiar, strony, OCR, rate limit) z wartościami domyślnymi:
 
 ## Znane ograniczenia
 
-- Limity żądań i cache są w pamięci jednej repliki; restart je zeruje.
-- OCR w przeglądarce (8 rdzeni): skan 10 stron ~8 s, 30 stron ~24 s. Bez niego (stara przeglądarka, błąd WASM)
-  serwer czyta ~3-5 s na stronę, a skan powyżej ~20 stron kończy się `TIMEOUT` (limit 85 s).
-- Tryb `npm run dev` nie serwuje plików tesseract.js; OCR w przeglądarce działa w buildzie (`npm run build`).
-- Grounding nie wychwyci zmyślonej kwoty, która przypadkiem występuje w tekście (np. „1”).
-- Historia zapisuje tylko wyniki, nie pliki, więc po otwarciu z historii nie ma miniatur stron.
+- Limity i cache są w pamięci jednej repliki; restart je zeruje.
+- Skan, którego nie odczyta przeglądarka, czyta serwer (3-5 s na stronę); powyżej ~20 stron kończy się `TIMEOUT`.
 - Tekst dokumentu trafia do OpenRouter i dalej do dostawcy modelu.
-- DigitalOcean podmienia odpowiedź 502 na własną stronę 504, więc „AI zwróciło niepoprawny wynik” widać jako
-  „Analiza trwała zbyt długo”.
