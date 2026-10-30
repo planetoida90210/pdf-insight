@@ -13,8 +13,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@tesseract.js-data/eng": "1.0.0",
-    "@tesseract.js-data/pol": "1.0.0",
     "pdfjs-dist": "6.4.299",
     "react": "19.3.1",
     "react-dom": "19.3.1",
