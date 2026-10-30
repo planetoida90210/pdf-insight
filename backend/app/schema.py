@@ -145,8 +145,10 @@ class AnalyzeRequest(ApiModel):
 IN_DOCUMENT_LANGUAGE = "Written in the language of document.language."
 # The codes are Polish words; the model must not take them for the language to write in.
 DOCUMENT_TYPE_CODES = (
-    "One of these fixed codes, whatever the document's language: faktura = invoice, "
-    "umowa = contract, oferta = offer, raport = report, inne = other."
+    "One of these fixed codes, whatever the document's language: faktura = any invoice or bill "
+    "(also pro forma, credit note, receipt), umowa = contract or agreement (also its annex or "
+    "terms), oferta = offer, quotation or price list, raport = report, statement or minutes, "
+    "inne = anything else."
 )
 
 
