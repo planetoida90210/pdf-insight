@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
-import { PAGE_BADGES, pageElementId, type PageBadge } from '../../lib/pages';
+import { PAGE_BADGES, pageElementId, pageLabel, type PageBadge } from '../../lib/pages';
 import { renderPage } from '../../lib/pdf';
 import { Badge } from '../atoms/Badge';
 
@@ -57,7 +57,7 @@ export function PageThumbnail({ pdf, page, badges }: PageThumbnailProps) {
       id={pageElementId(page)}
       className="thumb"
       tabIndex={-1}
-      aria-label={[`Strona ${page}`, ...labels].join(', ')}
+      aria-label={[pageLabel(page), ...labels].join(', ')}
     >
       <canvas ref={canvasRef} />
       <p className="row">

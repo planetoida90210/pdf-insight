@@ -1,6 +1,6 @@
 import { documentTitle } from '../../lib/format';
 import { downloadResult } from '../../lib/download';
-import { focusPage } from '../../lib/pages';
+import { focusPage, pageLabel } from '../../lib/pages';
 import { DOCUMENT_FIELDS, LIST_SECTIONS, TABLE_SECTIONS } from '../../lib/resultSections';
 import type { AnalysisResult } from '../../lib/schema';
 import { Button } from '../atoms/Button';
@@ -50,7 +50,7 @@ export function ResultsView({ result, file, onReset }: ResultsViewProps) {
             <li key={index}>
               {message}{' '}
               {file && page !== null ? (
-                <Button onClick={() => focusPage(page)}>Strona {page}</Button>
+                <Button onClick={() => focusPage(page)}>{pageLabel(page)}</Button>
               ) : null}
             </li>
           ))}
