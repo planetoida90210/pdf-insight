@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_OCR_WORKERS, MAX_RENDER_PIXELS, OCR_DPI } from './config';
-import { needsOcr, ocrScale, workerCount } from './ocr';
+import { needsOcr, ocrScale, pageConfidence, workerCount } from './ocr';
 
 const TEXT = 'Umowa ramowa nr 14/2026 zawarta 12 marca 2026 r. ';
 const page = (text: string, imageShare = 0) => ({ text, imageShare });
@@ -37,5 +37,14 @@ describe('ocrScale', () => {
     expect(ocrScale(595, 842)).toBe(OCR_DPI / 72);
     const scale = ocrScale(14400, 14400);
     expect((14400 * scale) ** 2).toBeCloseTo(MAX_RENDER_PIXELS);
+  });
+});
+
+describe('pageConfidence', () => {
+  it('is the share of sure words among those that are not noise', () => {
+    expect(pageConfidence([96, 95, 93, 86, 40, 12, 0])).toBe(75);
+    expect(pageConfidence([96, 95, 93, 91])).toBe(100);
+    expect(pageConfidence([30, 12])).toBe(0);
+    expect(pageConfidence([])).toBe(0);
   });
 });

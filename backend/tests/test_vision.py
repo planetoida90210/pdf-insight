@@ -25,7 +25,7 @@ def extract(vision: OpenRouter | None, *confidences: float, **settings: object) 
     return extract_pdf(
         image_pages_pdf(*["Aneks: 13 100 PLN"] * len(confidences)),
         "scan.pdf",
-        Settings(ocr_min_confidence=60, **settings),  # type: ignore[arg-type]
+        Settings(**settings),  # type: ignore[arg-type]
         vision=vision,
         browser_ocr=browser_ocr,
     )
@@ -38,7 +38,7 @@ def test_low_confidence_page_is_transcribed_by_vision() -> None:
     assert [w.code for w in result.warnings] == ["VISION_USED"]
 
 
-def test_only_the_least_confident_pages_go_to_vision_in_one_round() -> None:
+def test_only_the_least_confident_pages_under_the_minimum_go_to_vision_in_one_round() -> None:
     all_started = threading.Barrier(2, timeout=5)
 
     def respond(_: str) -> str:
@@ -46,10 +46,18 @@ def test_only_the_least_confident_pages_go_to_vision_in_one_round() -> None:
         return "Aneks: 13 100 PLN"
 
     llm = FakeLlm(respond)
-    result = extract(llm, 95.0, 20.0, 89.0, 90.0, vision_max_pages=2)
+    result = extract(llm, 95.0, 20.0, 50.0, 40.0, 90.0, vision_max_pages=2)
     methods = [info.method for info in result.page_info]
-    assert methods == ["ocr", "vision", "vision", "ocr"]
+    assert methods == ["ocr", "vision", "ocr", "vision", "ocr"]
     assert len(llm.prompts) == 2
+
+
+def test_pages_at_or_over_the_default_minimum_stay_with_ocr() -> None:
+    llm = FakeLlm(lambda _: "Aneks: 13 100 PLN")
+    result = extract(llm, 87.9, 88.0, 95.0)
+    assert [info.method for info in result.page_info] == ["vision", "ocr", "ocr"]
+    assert len(llm.prompts) == 1
+    assert [w.code for w in result.warnings] == ["VISION_USED", "OCR_USED", "OCR_USED"]
 
 
 def test_vision_calls_stop_when_the_client_budget_is_used_up() -> None:
