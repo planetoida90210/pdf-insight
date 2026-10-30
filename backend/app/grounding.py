@@ -35,15 +35,17 @@ def ascii_digits(text: str) -> str:
 def amount_in(value: float, text: str) -> bool:
     """Whether the text (with ASCII digits) writes the value: its digits without trailing zeros,
     in order from the start of a digit group, at most one separator of any kind between two of
-    them, then only zeros to the group's end. "12 300,00", "1,23,600", "13\\n100,00" and
-    "(105.00)" write 12300, 123600, 13100 and -105; "2,5 mln" writes 2500000."""
+    them, then only zeros to the group's end, at least the ones its integer part needs.
+    "12 300,00", "1,23,600", "13\\n100,00" and "(105.00)" write 12300, 123600, 13100 and -105;
+    "1" does not write 1000."""
     # str() gives the shortest decimal form of a float; format(value, "f") would round to six
     # places and add float noise to large values.
     digits = re.sub(r"\D", "", format(Decimal(str(abs(value))), "f")).rstrip("0") or "0"
+    zeros = max(len(str(int(abs(value)))) - len(digits), 0)
     # The pattern starts with the first digit and only then checks that no digit precedes it:
     # a pattern that starts with a literal is searched for several times faster.
     separated = "".join(rf"\W?{digit}" for digit in digits[1:])
-    pattern = digits[0] + r"(?<!\d\d)" + separated + r"(?:\W?0)*(?!\d)"
+    pattern = digits[0] + r"(?<!\d\d)" + separated + r"(?:\W?0)" + f"{{{zeros},}}" + r"(?!\d)"
     return re.search(pattern, text) is not None
 
 

@@ -78,8 +78,7 @@ Pozostałe limity (rozmiar, strony, OCR, rate limit) z wartościami domyślnymi:
 - OCR w przeglądarce (8 rdzeni): skan 10 stron ~8 s, 30 stron ~24 s. Bez niego (stara przeglądarka, błąd WASM)
   serwer czyta ~3-5 s na stronę, a skan powyżej ~20 stron kończy się `TIMEOUT` (limit 85 s).
 - Tryb `npm run dev` nie serwuje plików tesseract.js; OCR w przeglądarce działa w buildzie (`npm run build`).
-- Grounding porównuje cyfry kwoty bez zer na końcu, więc nie wychwyci zmyślonej kwoty, której cyfry są w tekście
-  (np. 1000 przy „1”).
+- Grounding nie wychwyci zmyślonej kwoty, która przypadkiem występuje w tekście (np. „1”).
 - Historia zapisuje tylko wyniki, nie pliki, więc po otwarciu z historii nie ma miniatur stron.
 - Tekst dokumentu trafia do OpenRouter i dalej do dostawcy modelu.
 - DigitalOcean podmienia odpowiedź 502 na własną stronę 504, więc „AI zwróciło niepoprawny wynik” widać jako

@@ -35,8 +35,6 @@ from tests.fakes import llm_answer
         (13100, "abonament w wysokości 13\n100,00 PLN"),
         (120, "użytkownicy: 120\n135"),
         (135, "użytkownicy: 120\n135"),
-        # Trailing zeros are not compared, so a magnitude written in words is found too.
-        (2500000, "2,5 mln zł"),
     ],
 )
 def test_finds_an_amount_written_in_any_format(value: float, text: str) -> None:
@@ -45,9 +43,19 @@ def test_finds_an_amount_written_in_any_format(value: float, text: str) -> None:
 
 @pytest.mark.parametrize(
     ("value", "text"),
-    [(5, "105 PLN"), (25, "rok 2025"), (1, "184 500,00 zł od 01.04.2026"), (1234.5, "1 234,56")],
+    [
+        # Digits inside a longer number.
+        (5, "105 PLN"),
+        (25, "rok 2025"),
+        (1, "184 500,00 zł od 01.04.2026"),
+        (1234.5, "1 234,56"),
+        # Zeros of the integer part that the text does not write.
+        (1000, "strona 1 z 3"),
+        (100000, "10 000 PLN"),
+        (2500000, "2,5 mln zł"),
+    ],
 )
-def test_digits_inside_another_number_do_not_count(value: float, text: str) -> None:
+def test_finds_no_amount_the_text_does_not_write(value: float, text: str) -> None:
     assert not amount_in(value, ascii_digits(text))
 
 
