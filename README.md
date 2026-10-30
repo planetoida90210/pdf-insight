@@ -82,5 +82,3 @@ Pozostałe limity (rozmiar, strony, OCR, rate limit) z wartościami domyślnymi:
 - Grounding nie wychwyci zmyślonej kwoty, która przypadkiem występuje w tekście (np. „1”).
 - Historia zapisuje tylko wyniki, nie pliki, więc po otwarciu z historii nie ma miniatur stron.
 - Tekst dokumentu trafia do OpenRouter i dalej do dostawcy modelu.
-- DigitalOcean podmienia odpowiedź 502 na własną stronę 504, więc „AI zwróciło niepoprawny wynik” widać jako
-  „Analiza trwała zbyt długo”.

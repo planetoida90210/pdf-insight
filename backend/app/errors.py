@@ -36,6 +36,8 @@ class WarningCode(StrEnum):
     CHUNKED = "CHUNKED"
 
 
+# DigitalOcean's edge replaces a 502, 503 or 504 from the app with its own HTML 504, so the AI
+# errors use 500 to reach the client with their code.
 ERRORS: dict[ErrorCode, tuple[int, str]] = {
     ErrorCode.FILE_TOO_LARGE: (413, "Plik jest za duży. Maksymalny rozmiar to {max_mb} MB."),
     ErrorCode.UNSUPPORTED_TYPE: (415, "Obsługiwane są tylko pliki PDF."),
@@ -57,10 +59,10 @@ ERRORS: dict[ErrorCode, tuple[int, str]] = {
     ErrorCode.RATE_LIMITED: (429, "Zbyt wiele żądań. Spróbuj ponownie za chwilę."),
     ErrorCode.DAILY_LIMIT: (429, "Wyczerpano dzienny limit analiz. Spróbuj ponownie jutro."),
     ErrorCode.AI_INVALID_RESPONSE: (
-        502,
+        500,
         "Model AI zwrócił niepoprawną odpowiedź. Spróbuj ponownie.",
     ),
-    ErrorCode.AI_UNAVAILABLE: (503, "Usługa AI jest chwilowo niedostępna. Spróbuj ponownie."),
+    ErrorCode.AI_UNAVAILABLE: (500, "Usługa AI jest chwilowo niedostępna. Spróbuj ponownie."),
     ErrorCode.TIMEOUT: (504, "Przetwarzanie trwało zbyt długo. Spróbuj ponownie."),
     ErrorCode.INVALID_REQUEST: (400, "Niepoprawne żądanie."),
     ErrorCode.NOT_FOUND: (404, "Nie znaleziono zasobu."),

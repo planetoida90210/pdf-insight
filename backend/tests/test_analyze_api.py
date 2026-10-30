@@ -213,12 +213,12 @@ def test_invalid_json_is_retried_too() -> None:
     assert analyze(client).status_code == 200
 
 
-def test_second_invalid_answer_returns_502() -> None:
+def test_second_invalid_answer_returns_500() -> None:
     llm = FakeLlm(lambda _: llm_answer(keyPoints=["jeden"]))
     client, app = make_client(llm)
     seed(app)
     response = analyze(client)
-    assert response.status_code == 502
+    assert response.status_code == 500
     assert response.json()["error"] == {
         "code": "AI_INVALID_RESPONSE",
         "message": "Model AI zwrócił niepoprawną odpowiedź. Spróbuj ponownie.",
@@ -240,7 +240,7 @@ def test_ungrounded_values_are_removed() -> None:
 
 
 def test_provider_errors_keep_their_codes() -> None:
-    for code, status in ((ErrorCode.AI_UNAVAILABLE, 503), (ErrorCode.TIMEOUT, 504)):
+    for code, status in ((ErrorCode.AI_UNAVAILABLE, 500), (ErrorCode.TIMEOUT, 504)):
 
         def fail(_: str, code: ErrorCode = code) -> str:
             raise ApiError(code)
@@ -250,11 +250,11 @@ def test_provider_errors_keep_their_codes() -> None:
         assert analyze(client).status_code == status
 
 
-def test_missing_key_answers_503_but_extraction_cache_is_checked_first() -> None:
+def test_missing_key_answers_ai_unavailable_but_extraction_cache_is_checked_first() -> None:
     client, app = make_client(None, openrouter_api_key=None)
     assert analyze(client, "missing").status_code == 404
     seed(app)
-    assert analyze(client).status_code == 503
+    assert analyze(client).json()["error"]["code"] == "AI_UNAVAILABLE"
 
 
 def test_daily_cap_counts_llm_calls(caplog: pytest.LogCaptureFixture) -> None:
@@ -344,5 +344,5 @@ def test_failed_analysis_can_be_retried_with_the_same_id() -> None:
 
     client, app = make_client(FakeLlm(fails_once))
     seed(app)
-    assert analyze(client).status_code == 503
+    assert analyze(client).status_code == 500
     assert analyze(client).status_code == 200
