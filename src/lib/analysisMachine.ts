@@ -1,7 +1,7 @@
 import { analyzeExtraction, extractText } from '../api/client';
 import { AppError, toAppError } from './errors';
 import { documentTitle } from './format';
-import { readScannedPages } from './ocr';
+import { readScannedPages, startOcrWorker, stopOcrWorker } from './ocr';
 import { validatePdf } from './pdf';
 import type { AnalysisResult, ExtractResponse } from './schema';
 
@@ -64,15 +64,17 @@ export async function runPipeline(
   const update = (action: AnalysisAction) => {
     if (!signal.aborted) dispatch(action);
   };
-  const extract = async () => {
+  const extract = async (ocrWorker = startOcrWorker()) => {
     update({ type: 'extracting' });
     const onProgress = (done: number, total: number) =>
       update({ type: 'ocr', progress: { done, total } });
-    const ocr = await readScannedPages(run.file, signal, onProgress).catch((error: unknown) => {
-      if (signal.aborted) throw error;
-      // Without the browser's text the server reads those pages itself, only slower.
-      return [];
-    });
+    const ocr = await readScannedPages(run.file, ocrWorker, signal, onProgress).catch(
+      (error: unknown) => {
+        if (signal.aborted) throw error;
+        // Without the browser's text the server reads those pages itself, only slower.
+        return [];
+      },
+    );
     return extractText(run.file, ocr, signal);
   };
   const analyze = (extraction: ExtractResponse) => {
@@ -81,9 +83,11 @@ export async function runPipeline(
   };
 
   update({ type: 'start', run, startedAt: Date.now() });
+  // Loads while the file is checked; readScannedPages ends it, as does the end of the run.
+  const ocrWorker = run.extraction ? undefined : startOcrWorker();
   try {
     if (run.step === 0) await validatePdf(run.file);
-    const extraction = run.extraction ?? (await extract());
+    const extraction = run.extraction ?? (await extract(ocrWorker));
     const result = await analyze(extraction).catch(async (error: unknown) => {
       if (!(error instanceof AppError && error.code === 'EXTRACTION_NOT_FOUND')) throw error;
       // The text expired in the server's memory, so the file is sent again, once.
@@ -94,6 +98,8 @@ export async function runPipeline(
   } catch (error) {
     update({ type: 'fail', error: toAppError(error) });
     return null;
+  } finally {
+    if (ocrWorker) stopOcrWorker(ocrWorker);
   }
 }
 

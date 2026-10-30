@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MAX_OCR_WORKERS, MAX_RENDER_PIXELS, OCR_DPI } from './config';
-import { needsOcr, ocrScale, pageConfidence, workerCount } from './ocr';
+import { needsOcr, ocrScale, pageConfidence, readInParallel, workerCount } from './ocr';
 
 const TEXT = 'Umowa ramowa nr 14/2026 zawarta 12 marca 2026 r. ';
 const page = (text: string, imageShare = 0) => ({ text, imageShare });
@@ -46,5 +46,51 @@ describe('pageConfidence', () => {
     expect(pageConfidence([96, 95, 93, 91])).toBe(100);
     expect(pageConfidence([30, 12])).toBe(0);
     expect(pageConfidence([])).toBe(0);
+  });
+});
+
+describe('readInParallel', () => {
+  // Readers numbered from 1 in start order; `read` gets the page and the reader's number.
+  const readers = (read: (page: number, reader: number) => Promise<number>) => {
+    const stopped: number[] = [];
+    let started = 0;
+    const start = async () => {
+      const reader = (started += 1);
+      return { read: (page: number) => read(page, reader), stop: () => stopped.push(reader) };
+    };
+    return { start, stopped, started: () => started };
+  };
+  const signal = new AbortController().signal;
+
+  it('reads every page, reports progress and ends every worker', async () => {
+    const { start, stopped } = readers(async (page) => page);
+    const progress: number[] = [];
+    const pages = await readInParallel([1, 2, 3, 4], 2, start, signal, (done) =>
+      progress.push(done),
+    );
+    expect(pages.sort()).toEqual([1, 2, 3, 4]);
+    expect(progress).toEqual([1, 2, 3, 4]);
+    expect(stopped.sort()).toEqual([1, 2]);
+  });
+
+  it('leaves the pages to the other workers when one cannot start', async () => {
+    const { start } = readers(async (page) => page);
+    const flaky = vi.fn(start).mockRejectedValueOnce(new Error('NetworkError'));
+    const pages = await readInParallel([1, 2, 3], 2, flaky, signal, () => {});
+    expect(pages).toEqual([1, 2, 3]);
+  });
+
+  it('ends the wait and the workers at once on a cancel', async () => {
+    const controller = new AbortController();
+    let reading = 0;
+    const { start, stopped } = readers(() => {
+      reading += 1;
+      return new Promise(() => {});
+    });
+    const pages = readInParallel([1, 2, 3], 2, start, controller.signal, () => {});
+    await vi.waitFor(() => expect(reading).toBe(2));
+    controller.abort(new Error('cancelled'));
+    await expect(pages).rejects.toThrow('cancelled');
+    expect(stopped.sort()).toEqual([1, 2]);
   });
 });

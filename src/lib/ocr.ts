@@ -1,4 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { Worker } from 'tesseract.js';
 import {
   MAX_OCR_WORKERS,
   MAX_RENDER_PIXELS,
@@ -51,9 +52,30 @@ export function ocrScale(width: number, height: number): number {
   return Math.min(OCR_DPI / PDF_UNITS_PER_INCH, Math.sqrt(MAX_RENDER_PIXELS / (width * height)));
 }
 
-// Reads the pages that need OCR with tesseract.js workers running in parallel.
+// Starts a tesseract.js worker. Its download and start-up are what a scan waits for before the
+// first page is read, so the pipeline starts one as soon as a file is chosen.
+export async function startOcrWorker(): Promise<Worker> {
+  const { createWorker, OEM } = await import('tesseract.js');
+  const assets = `${import.meta.env.BASE_URL}${OCR_ASSETS_DIR}/`;
+  return createWorker(OCR_LANGS, OEM.LSTM_ONLY, {
+    workerPath: `${assets}worker.min.js`,
+    corePath: assets,
+    langPath: assets,
+    workerBlobURL: false,
+    cacheMethod: 'none',
+  });
+}
+
+// Ends a worker, also one still starting. A worker that failed to start has nothing to end.
+export function stopOcrWorker(worker: Promise<Worker>): void {
+  void worker.then((started) => started.terminate()).catch(() => {});
+}
+
+// Reads the pages that need OCR with tesseract.js workers running in parallel. `first` is a
+// worker the caller started early; it is ended here, used or not.
 export async function readScannedPages(
   file: File,
+  first: Promise<Worker>,
   signal: AbortSignal,
   onProgress: (done: number, total: number) => void,
 ): Promise<OcrPage[]> {
@@ -62,8 +84,12 @@ export async function readScannedPages(
     const pages = await pagesToRead(pdf, signal);
     if (pages.length === 0) return [];
     onProgress(0, pages.length);
-    return await recognize(pdf, pages, signal, onProgress);
+    const workers = [first];
+    const start = () => pageReader(pdf, workers.pop() ?? startOcrWorker());
+    const count = workerCount(navigator.hardwareConcurrency, pages.length);
+    return await readInParallel(pages, count, start, signal, onProgress);
   } finally {
+    stopOcrWorker(first);
     void pdf.loadingTask.destroy();
   }
 }
@@ -79,49 +105,58 @@ async function pagesToRead(pdf: PDFDocumentProxy, signal: AbortSignal): Promise<
   return pages;
 }
 
-// Each worker renders its next page only when it is free: rendering every page first would hold
-// all the bitmaps in memory at once. A worker that fails drops out; the backend reads the pages
-// it did not finish.
-async function recognize(
+type PageReader<T> = { read: (page: number) => Promise<T>; stop: () => void };
+
+async function pageReader(
   pdf: PDFDocumentProxy,
+  ready: Promise<Worker>,
+): Promise<PageReader<OcrPage>> {
+  const worker = await ready;
+  return {
+    stop: () => void worker.terminate(),
+    read: async (number) => {
+      const page = await pdf.getPage(number);
+      const { width, height } = page.getViewport({ scale: 1 });
+      const canvas = await renderPageImage(page, ocrScale(width, height));
+      const { data } = await worker.recognize(canvas, {}, { blocks: true });
+      canvas.width = 0;
+      page.cleanup();
+      const words = (data.blocks ?? []).flatMap((block) =>
+        block.paragraphs.flatMap((paragraph) => paragraph.lines.flatMap((line) => line.words)),
+      );
+      return {
+        page: number,
+        text: data.text,
+        confidence: pageConfidence(words.map((word) => word.confidence)),
+      };
+    },
+  };
+}
+
+// Reads the pages with `count` readers in parallel. A reader takes its next page only when it is
+// free: rendering every page first would hold all the bitmaps in memory at once. A reader that
+// fails drops out; the backend reads the pages it did not finish.
+export async function readInParallel<T>(
   pages: number[],
+  count: number,
+  start: () => Promise<PageReader<T>>,
   signal: AbortSignal,
   onProgress: (done: number, total: number) => void,
-): Promise<OcrPage[]> {
-  const { createWorker, OEM } = await import('tesseract.js');
-  const assets = `${import.meta.env.BASE_URL}${OCR_ASSETS_DIR}/`;
+): Promise<T[]> {
   const queue = [...pages];
-  const results: OcrPage[] = [];
+  const results: T[] = [];
 
-  async function drain() {
-    const worker = await createWorker(OCR_LANGS, OEM.LSTM_ONLY, {
-      workerPath: `${assets}worker.min.js`,
-      corePath: assets,
-      langPath: assets,
-      workerBlobURL: false,
-      cacheMethod: 'none',
-    });
-    const stop = () => void worker.terminate();
-    signal.addEventListener('abort', stop);
+  async function drain(): Promise<void> {
+    const reader = await start();
+    signal.addEventListener('abort', reader.stop);
     try {
-      let number = queue.shift();
-      for (; number !== undefined && !signal.aborted; number = queue.shift()) {
-        const page = await pdf.getPage(number);
-        const { width, height } = page.getViewport({ scale: 1 });
-        const canvas = await renderPageImage(page, ocrScale(width, height));
-        const { data } = await worker.recognize(canvas, {}, { blocks: true });
-        canvas.width = 0;
-        page.cleanup();
-        const words = (data.blocks ?? []).flatMap((block) =>
-          block.paragraphs.flatMap((paragraph) => paragraph.lines.flatMap((line) => line.words)),
-        );
-        const confidence = pageConfidence(words.map((word) => word.confidence));
-        results.push({ page: number, text: data.text, confidence });
+      for (let page = queue.shift(); page !== undefined && !signal.aborted; page = queue.shift()) {
+        results.push(await reader.read(page));
         onProgress(results.length, pages.length);
       }
     } finally {
-      signal.removeEventListener('abort', stop);
-      stop();
+      signal.removeEventListener('abort', reader.stop);
+      reader.stop();
     }
   }
 
@@ -133,7 +168,6 @@ async function recognize(
   signal.addEventListener('abort', onAbort);
   try {
     signal.throwIfAborted();
-    const count = workerCount(navigator.hardwareConcurrency, pages.length);
     await Promise.race([Promise.allSettled(Array.from({ length: count }, drain)), aborted]);
     return results;
   } finally {
