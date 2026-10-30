@@ -32,7 +32,8 @@ Zod → widok, JSON, historia          walidacja Pydantic, 1 retry, grounding
 - **OCR per strona, w przeglądarce.** Serwer ma 1 współdzielony vCPU (Tesseract 3-5 s na stronę), więc skany czyta
   tesseract.js (`pol+eng`) w kilku workerach przeglądarki i wysyła tekst razem z PDF. O tym, która strona wymaga OCR
   (mało tekstu, znaki bez Unicode, obraz pod krótkim tekstem), decyduje serwer; strony bez tekstu z przeglądarki czyta
-  sam Tesseractem. Strony z najniższą pewnością OCR (do `VISION_MAX_PAGES`, domyślnie 4) czyta model z obrazu.
+  sam Tesseractem. Strony, które OCR odczytał niepewnie (`OCR_MIN_CONFIDENCE`), czyta model z obrazu, do
+  `VISION_MAX_PAGES` (domyślnie 4) na plik.
 - **Długie dokumenty.** Tekst > 150 000 znaków dzielony po stronach na fragmenty analizowane równolegle (do 8);
   wyniki łączone, podsumowanie pisane z całości. Ponad 2 000 000 znaków → odmowa (`TEXT_TOO_LONG`), bez pomijania stron.
 - **Bezpieczeństwo.** Klucz tylko w zmiennych DigitalOcean App Platform; CORS tylko dla domeny demo; limity: 10 MB, 200 stron,

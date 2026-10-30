@@ -183,13 +183,13 @@ def _transcribe_unsure(
     settings: Settings,
     deadline: float,
 ) -> None:
-    """Gives the VISION_MAX_PAGES pages that OCR read with the lowest confidence a vision
-    model's text, in one parallel round.
-
-    Tesseract is as confident about the garbled text of a photographed or sideways page as about
-    a clean scan, so no confidence threshold can pick those pages out.
-    """
-    scored = [(page.info.confidence, page) for page in pages if page.info.confidence is not None]
+    """Gives the OCR pages under OCR_MIN_CONFIDENCE a vision model's text, the
+    VISION_MAX_PAGES least confident of them, in one parallel round."""
+    scored = [
+        (page.info.confidence, page)
+        for page in pages
+        if page.info.confidence is not None and page.info.confidence < settings.ocr_min_confidence
+    ]
     lowest = heapq.nsmallest(settings.vision_max_pages, scored, key=lambda item: item[0])
     unsure = [page for _, page in lowest]
     if not unsure:
