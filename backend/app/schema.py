@@ -140,12 +140,17 @@ class AnalyzeRequest(ApiModel):
 
 
 IN_DOCUMENT_LANGUAGE = "Written in the language of document.language."
+# The codes are Polish words; the model must not take them for the language to write in.
+DOCUMENT_TYPE_CODES = (
+    "One of these fixed codes, whatever the document's language: faktura = invoice, "
+    "umowa = contract, oferta = offer, raport = report, inne = other."
+)
 
 
 # The model fills only these fields; fileName, pages, warnings and meta come from the backend.
 class LlmDocument(ApiModel):
     language: Annotated[str, Field(pattern=r"^[a-z]{2}$")]
-    type: DocumentType
+    type: Annotated[DocumentType, Field(description=DOCUMENT_TYPE_CODES)]
     title: NonEmptyStr | None
     date: IsoDate | None
 
