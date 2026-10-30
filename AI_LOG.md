@@ -22,7 +22,7 @@
    Dla PaddleOCR, Docling, LangChain i bazy wektorowej: jaki konkretny problem rozwiązują w tym zakresie
    i ile kosztują w latencji, złożoności i powierzchni ataku. Zostaw tylko to, co ma uzasadnienie.”
    → wszystkie cztery wypadły: brak przypadku użycia dla retrievalu, wolny OCR na współdzielonym CPU.
-   Redis i IndexedDB zastąpiły limity w pamięci (jedna replika) i localStorage.
+   Zamiast Redis i IndexedDB: limity w pamięci (jedna replika) i localStorage.
 3. „Zbuduj F-01–F-10 jako orkiestrator. Jedno źródło prawdy: PLAN.md z kontraktem API, schematem i zasadami.
    Backend i frontend robią osobni agenci w osobnych git worktree, a wspólne fixture'y muszą przejść
    i Pydantic, i Zod. Małe commity w Conventional Commits, zero martwego kodu, każdy krok sprawdzony komendą,
@@ -36,7 +36,8 @@
 5. „Każda strona ma zostać przeczytana: bez limitu stron i bez obcinania tekstu, na obecnym hostingu
    (1 współdzielony vCPU), bez dodatkowych kosztów, w DoD < 30 s. Regresji nie przyjmuję: każdą zmianę mierz
    przed i po na tym samym korpusie.”
-   → OCR skanów w przeglądarce (tesseract.js, równoległe workery), serwer tylko weryfikuje.
+   → OCR skanów w przeglądarce (tesseract.js, równoległe workery); gdy przeglądarka nie przyśle tekstu strony,
+   serwer czyta ją Tesseractem.
    Skan 30 stron: 76 s → 19 s.
 
 ## Gdzie AI się pomyliło i jak to poprawiłem
