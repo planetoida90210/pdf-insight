@@ -54,7 +54,7 @@ def test_only_the_least_confident_pages_under_the_minimum_go_to_vision_in_one_ro
 
 def test_pages_at_or_over_the_default_minimum_stay_with_ocr() -> None:
     llm = FakeLlm(lambda _: "Aneks: 13 100 PLN")
-    result = extract(llm, 87.9, 88.0, 95.0)
+    result = extract(llm, 84.9, 85.0, 95.0)
     assert [info.method for info in result.page_info] == ["vision", "ocr", "ocr"]
     assert len(llm.prompts) == 1
     assert [w.code for w in result.warnings] == ["VISION_USED", "OCR_USED", "OCR_USED"]
