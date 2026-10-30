@@ -1,5 +1,5 @@
 import { analyzeExtraction, extractText } from '../api/client';
-import { AppError } from './errors';
+import { AppError, toAppError } from './errors';
 import { documentTitle } from './format';
 import { readScannedPages } from './ocr';
 import { validatePdf } from './pdf';
@@ -92,7 +92,7 @@ export async function runPipeline(
     update({ type: 'done', result });
     return signal.aborted ? null : result;
   } catch (error) {
-    update({ type: 'fail', error: error instanceof AppError ? error : new AppError('INTERNAL') });
+    update({ type: 'fail', error: toAppError(error) });
     return null;
   }
 }
