@@ -34,7 +34,7 @@ def test_returns_page_info_and_caches_the_text() -> None:
     assert body["warnings"] == []
     cached = cast(TtlCache[Extraction], app.state.cache).get(body["extractionId"])
     assert cached is not None
-    assert cached.pages == [f"[Strona 1]\n{PAGE}"]
+    assert cached.pages == [f"=== 1 ===\n{PAGE}"]
 
 
 def extract_with_ocr(client: TestClient, ocr: bytes, file_name: str | None = "blob") -> Response:
@@ -78,10 +78,22 @@ def test_reports_hidden_text() -> None:
     assert [w["code"] for w in response.json()["warnings"]] == ["HIDDEN_TEXT"]
 
 
+def file_name_of(client: TestClient, name: str) -> str:
+    response = client.post("/api/extract", files={"file": (name, text_pdf(PAGE))})
+    return str(response.json()["fileName"])
+
+
 def test_long_file_name_is_cut_to_the_schema_limit() -> None:
     client, _ = make_client()
-    response = client.post("/api/extract", files={"file": ("a" * 300 + ".pdf", text_pdf(PAGE))})
-    assert response.json()["fileName"] == "a" * 255
+    assert file_name_of(client, "a" * 300 + ".pdf") == "a" * 255
+    # An emoji takes two UTF-16 code units; the one cut in half is dropped.
+    assert file_name_of(client, "\U0001f600" * 200 + ".pdf") == "\U0001f600" * 127
+
+
+def test_file_name_loses_format_characters() -> None:
+    client, _ = make_client()
+    assert file_name_of(client, "raport\u202etxt.pdf") == "raporttxt.pdf"
+    assert file_name_of(client, "\u200b\u202e") == "document.pdf"
 
 
 def test_rate_limit_answers_before_the_upload_is_parsed() -> None:

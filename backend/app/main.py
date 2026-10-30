@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import unicodedata
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
@@ -32,6 +33,7 @@ MULTIPART_OVERHEAD = 64 * 1024
 # One extraction with OCR peaks near 300 MiB (parser process plus Tesseract), so a second one
 # would not fit in a 512 MiB instance; on one shared vCPU it would not finish sooner either.
 EXTRACT_CONCURRENCY = 1
+# In UTF-16 code units: the length the browser's schema (Zod) counts.
 FILE_NAME_MAX = 255
 # The API answers JSON only: nothing in a response may be rendered, framed, sniffed or cached.
 SECURITY_HEADERS = {
@@ -107,7 +109,7 @@ def create_app(settings: Settings, llm: OpenRouter | None = None) -> FastAPI:
     async def extract(
         file: Annotated[UploadFile, File()], ocr: Annotated[UploadFile | None, File()] = None
     ) -> ExtractResponse:
-        file_name = (file.filename or "document.pdf")[:FILE_NAME_MAX]
+        file_name = _file_name(file.filename)
         # Read inside the slot: queued uploads wait in Starlette's temporary files, not in RAM.
         async with extract_slots:
             data = await read_pdf_upload(file, settings)
@@ -167,6 +169,15 @@ def error_response(error: ApiError) -> JSONResponse:
         content={"error": {"code": error.code, "message": error.message}},
         headers=error.headers,
     )
+
+
+def _file_name(name: str | None) -> str:
+    """The client's file name without format characters, which change how it reads (U+202E
+    shows "raport<U+202E>txt.pdf" as "raportfdp.txt"), cut to FILE_NAME_MAX UTF-16 code units;
+    a surrogate pair cut in half is dropped."""
+    visible = "".join(char for char in name or "" if unicodedata.category(char) != "Cf")
+    cut = visible.encode("utf-16-le")[: 2 * FILE_NAME_MAX].decode("utf-16-le", "ignore")
+    return cut or "document.pdf"
 
 
 def _body_size_error(request: Request, settings: Settings) -> ApiError | None:

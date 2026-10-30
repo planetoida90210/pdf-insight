@@ -10,7 +10,7 @@ type PanelProps = {
 export function Panel({ title, children, headingRef }: PanelProps) {
   return (
     <section className="panel">
-      <h2 ref={headingRef} className="panel__title" tabIndex={-1}>
+      <h2 ref={headingRef} className="panel__title" tabIndex={-1} dir="auto">
         {title}
       </h2>
       {children}

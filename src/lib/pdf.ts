@@ -3,7 +3,7 @@ import type { PDFOperatorList } from 'pdfjs-dist/types/src/display/api';
 // The `?url` import gives the worker's hashed URL with the `base` prefix, so it also loads
 // under /pdf-insight/ on GitHub Pages.
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { MAX_FILE_MB } from './config';
+import { MAX_FILE_MB, PDF_HEADER_BYTES } from './config';
 import { AppError } from './errors';
 
 export const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
@@ -23,8 +23,8 @@ export function checkFileInfo(file: FileInfo): AppError | null {
 }
 
 export async function hasPdfSignature(file: Blob): Promise<boolean> {
-  const head = new Uint8Array(await file.slice(0, PDF_SIGNATURE.length).arrayBuffer());
-  return String.fromCharCode(...head) === PDF_SIGNATURE;
+  const head = new Uint8Array(await file.slice(0, PDF_HEADER_BYTES).arrayBuffer());
+  return String.fromCharCode(...head).includes(PDF_SIGNATURE);
 }
 
 // pdf.js (~1 MB) loads with the first file, so it does not slow down the page start.

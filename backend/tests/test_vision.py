@@ -32,7 +32,7 @@ def extract(
 
 def test_low_confidence_page_is_transcribed_by_vision() -> None:
     result = extract(FakeLlm(lambda _: "Aneks: 13 100 PLN"))
-    assert result.pages == ["[Strona 1]\nAneks: 13 100 PLN"]
+    assert result.pages == ["=== 1 ===\nAneks: 13 100 PLN"]
     assert [(info.method, info.confidence) for info in result.page_info] == [("vision", None)]
     assert [w.code for w in result.warnings] == ["VISION_USED"]
 
@@ -49,7 +49,7 @@ def test_vision_failure_keeps_the_ocr_text() -> None:
 
     for vision in (FakeLlm(fail), None):
         result = extract(vision)
-        assert result.pages == ["[Strona 1]\nAneks: 13 1OO PLN"]
+        assert result.pages == ["=== 1 ===\nAneks: 13 1OO PLN"]
         assert [w.code for w in result.warnings] == ["OCR_USED", "OCR_LOW_CONFIDENCE"]
 
 

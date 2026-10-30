@@ -38,9 +38,9 @@ def test_keeps_words_and_lines_apart() -> None:
             "Druga strona umowy z dodatkowym tekstem.",
         )
     )
-    assert result.pages[0].startswith("[Strona 1]\nStart etapu: 01.04.2026\n")
+    assert result.pages[0].startswith("=== 1 ===\nStart etapu: 01.04.2026\n")
     assert "Koniec etapu: 30.04.2026" in result.pages[0]
-    assert result.pages[1] == "[Strona 2]\nDruga strona umowy z dodatkowym tekstem."
+    assert result.pages[1] == "=== 2 ===\nDruga strona umowy z dodatkowym tekstem."
     assert [info.method for info in result.page_info] == ["text", "text"]
     assert result.warnings == []
 
@@ -80,7 +80,7 @@ def test_needs_ocr(text: str, image_share: float, expected: bool) -> None:
 def test_scan_under_a_short_text_layer_is_read_by_ocr(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(extraction, "tesseract", lambda *_: ("Aneks nr 1: 13 100 PLN", 91.0))
     result = extract(stamped_scan_pdf("BATES-000123 / PDF Insight test"))
-    assert result.pages == ["[Strona 1]\nAneks nr 1: 13 100 PLN"]
+    assert result.pages == ["=== 1 ===\nAneks nr 1: 13 100 PLN"]
     assert [(info.method, info.confidence) for info in result.page_info] == [("ocr", 91.0)]
 
 
@@ -93,10 +93,10 @@ def test_no_readable_text_raises_no_text() -> None:
 def test_browser_text_replaces_ocr_on_scanned_pages_only() -> None:
     pages = text_pdf("Umowa ramowa z dnia 12.03.2026 r.")
     ignored = extract(pages, browser_page(1, "Inny tekst"))
-    assert ignored.pages == ["[Strona 1]\nUmowa ramowa z dnia 12.03.2026 r."]
+    assert ignored.pages == ["=== 1 ===\nUmowa ramowa z dnia 12.03.2026 r."]
 
     scan = extract(image_pages_pdf("Aneks"), browser_page(1, "Aneks nr 1\n13 100 PLN\n"))
-    assert scan.pages == ["[Strona 1]\nAneks nr 1\n13 100 PLN"]
+    assert scan.pages == ["=== 1 ===\nAneks nr 1\n13 100 PLN"]
     assert [(info.method, info.confidence) for info in scan.page_info] == [("ocr", 93.0)]
     assert [w.code for w in scan.warnings] == ["OCR_USED"]
 
@@ -145,7 +145,7 @@ def test_huge_page_renders_within_the_pixel_cap() -> None:
     image = render_page(pdf[0], OCR_SCALE)
     assert image.width * image.height <= MAX_RENDER_PIXELS
     result = extract(huge_page_pdf(text))
-    assert result.pages == [f"[Strona 1]\n{text}"]
+    assert result.pages == [f"=== 1 ===\n{text}"]
     assert result.warnings == []
 
 

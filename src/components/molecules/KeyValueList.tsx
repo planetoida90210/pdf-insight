@@ -8,7 +8,7 @@ export function KeyValueList({ items }: KeyValueListProps) {
       {items.map(({ label, value }) => (
         <div key={label}>
           <dt>{label}</dt>
-          <dd>{value}</dd>
+          <dd dir="auto">{value}</dd>
         </div>
       ))}
     </dl>

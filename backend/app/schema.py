@@ -15,6 +15,7 @@ from pydantic import (
     TypeAdapter,
 )
 from pydantic.alias_generators import to_camel
+from pydantic.json_schema import SkipJsonSchema
 
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schema" / "analysis.schema.json"
 
@@ -75,6 +76,8 @@ class AnalysisWarning(ApiModel):
     code: Annotated[str, Field(pattern=r"^[A-Z_]+$")]
     page: PageNumber | None
     message: NonEmptyStr
+    # The document text the message quotes, to tell whether a later warning repeats it; never sent.
+    snippet: SkipJsonSchema[str | None] = Field(default=None, exclude=True)
 
 
 class Meta(ApiModel):
@@ -136,6 +139,9 @@ class AnalyzeRequest(ApiModel):
     extraction_id: Annotated[str, StringConstraints(min_length=1, max_length=64)]
 
 
+IN_DOCUMENT_LANGUAGE = "Written in the language of document.language."
+
+
 # The model fills only these fields; fileName, pages, warnings and meta come from the backend.
 class LlmDocument(ApiModel):
     language: Annotated[str, Field(pattern=r"^[a-z]{2}$")]
@@ -145,11 +151,16 @@ class LlmDocument(ApiModel):
 
 
 class LlmAnalysis(ApiModel):
+    # First in the schema, so the model sets the language before it writes the summary in it.
     document: LlmDocument
     # One sentence per item, so the 3-5 rule is a list length: counting sentences in free text
     # trips over abbreviations ("sp. z o.o.", "Inc.") in every language.
-    summary_sentences: Annotated[list[NonEmptyStr], Field(min_length=3, max_length=5)]
-    key_points: Annotated[list[NonEmptyStr], Field(min_length=3, max_length=7)]
+    summary_sentences: Annotated[
+        list[NonEmptyStr], Field(min_length=3, max_length=5, description=IN_DOCUMENT_LANGUAGE)
+    ]
+    key_points: Annotated[
+        list[NonEmptyStr], Field(min_length=3, max_length=7, description=IN_DOCUMENT_LANGUAGE)
+    ]
     entities: Entities
     amounts: list[Amount]
     dates: list[DateEntry]

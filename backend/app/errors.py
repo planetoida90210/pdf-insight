@@ -108,6 +108,6 @@ class ApiError(Exception):
 
 
 def warning(code: WarningCode, page: int | None = None, **fields: object) -> AnalysisWarning:
-    if "snippet" in fields:
-        fields["snippet"] = str(fields["snippet"])[:SNIPPET_CHARS]
-    return AnalysisWarning(code=code, page=page, message=WARNINGS[code].format(page=page, **fields))
+    snippet = str(fields["snippet"])[:SNIPPET_CHARS] if "snippet" in fields else None
+    message = WARNINGS[code].format(page=page, **(fields | {"snippet": snippet}))
+    return AnalysisWarning(code=code, page=page, message=message, snippet=snippet)

@@ -43,6 +43,11 @@ describe('hasPdfSignature', () => {
     expect(await hasPdfSignature(new Blob(['%PDF-1.7\n...']))).toBe(true);
   });
 
+  it('finds the header anywhere in the first 1024 bytes, as the backend does', async () => {
+    expect(await hasPdfSignature(new Blob(['<html>', ' '.repeat(1013), '%PDF-1.7']))).toBe(true);
+    expect(await hasPdfSignature(new Blob(['<html>', ' '.repeat(1014), '%PDF-1.7']))).toBe(false);
+  });
+
   it('rejects a .pdf file that is not a PDF', async () => {
     expect(await hasPdfSignature(new Blob(['<html>not a PDF</html>']))).toBe(false);
     expect(await hasPdfSignature(new Blob(['%PD']))).toBe(false);
