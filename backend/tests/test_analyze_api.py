@@ -107,11 +107,13 @@ def test_retries_once_with_the_validation_errors() -> None:
 
 
 # Page texts of files from the adversarial corpus, as the backend reads them. Hebrew comes from
-# the text layer in visual order; the Chinese invoice is a scan, read by vision; the last font has
-# no Unicode map, so its text layer is letters of no language.
+# the text layer; the Chinese invoice is a scan, read by vision; the last font has no Unicode map,
+# so its text layer is letters of no language.
 HEBREW_CONTRACT = (
-    'תוריש םכסה\n2026 ץרמב 5 םויב ביבא לתב םתחנ\nמ"עב תוכרעמ ןרוא תרבח :ןיב\nןהכ לעי :ןיבל\n'
-    '.מ"עמ תפסותב ₪ 4,500 היהת תישדוחה הרומתה .1'
+    'הסכם שירות\nנחתם בתל אביב ביום 5 במרץ 2026\nבין: חברת אורן מערכות בע"מ\nלבין: יעל כהן\n'
+    '.1 התמורה החודשית תהיה 4,500 ₪ בתוספת מע"מ.\n'
+    ".2 תקופת ההסכם: 12 חודשים החל מ1- באפריל .2026\n"
+    ".3 כל צד רשאי לבטל את ההסכם בהודעה מוקדמת של 30 יום."
 )
 CHINESE_INVOICE = (
     "增值税普通发票\n发票号码：04412873\n开票日期：2026年3月5日\n购买方：上海星河贸易有限公司\n"
@@ -160,6 +162,38 @@ def test_summary_in_another_script_is_retried(text: str) -> None:
     body = analyze(client).json()
     assert body["summary"] == " ".join(ANSWERS[text])
     assert "mostly in LATIN script" in llm.prompts[1]
+
+
+# What the model answered live for the Hebrew contract: Polish words inside Hebrew sentences.
+MIXED_HEBREW_ANSWER = {
+    "summarySentences": [
+        'הסכם שירות נחתם בתל אביב ביום 5 במרץ 2026 בין חברת אורן מערכות בע"מ לבין יעל כהן.',
+        'התמורה החודשית בהסכמie נקבעה na 4,500 ₪ בתוספת מע"מ.',
+        "תקופת ההסכם wynosi 12 חודשים i rozpoczyna się 1 באפריל 2026.",
+        "כל צד רשאי לבטל את ההסכם בהודעה מוקדמת של 30 יום.",
+    ],
+    "keyPoints": [
+        'הסכם שירות בין חברת אורן מערכות בע"מ לבין יעל כהן',
+        'תמורה חודשית של 4,500 ₪ בתוספת מע"מ',
+        "תקופה של 12 חודשים החל מ-1 באפריל 2026",
+        "אפשרות ביטול על ידי כל צד בהודעה מוקדמת של 30 יום",
+    ],
+}
+
+
+def test_summary_with_foreign_words_is_retried() -> None:
+    sentences = ANSWERS[HEBREW_CONTRACT]
+    replies = iter(
+        [
+            llm_answer(**MIXED_HEBREW_ANSWER),
+            llm_answer(summarySentences=sentences, keyPoints=sentences),
+        ]
+    )
+    llm = FakeLlm(lambda _: next(replies))
+    client, app = make_client(llm)
+    seed(app, value=extraction(HEBREW_CONTRACT))
+    assert analyze(client).json()["summary"] == " ".join(sentences)
+    assert "(i, ie, na, rozpoczyna, się, wynosi)" in llm.prompts[1]
 
 
 def test_unmapped_text_layer_reaches_the_model_without_added_words() -> None:
