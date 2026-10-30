@@ -134,8 +134,9 @@ async function pageReader(
 }
 
 // Reads the pages with `count` readers in parallel. A reader takes its next page only when it is
-// free: rendering every page first would hold all the bitmaps in memory at once. A reader that
-// fails drops out; the backend reads the pages it did not finish.
+// free: rendering every page first would hold all the bitmaps in memory at once. A page that fails
+// is read once more, by a new reader, since the failure may have broken the worker. The backend
+// reads a page that failed twice and the pages of a reader that could not start.
 export async function readInParallel<T>(
   pages: number[],
   count: number,
@@ -144,20 +145,28 @@ export async function readInParallel<T>(
   onProgress: (done: number, total: number) => void,
 ): Promise<T[]> {
   const queue = [...pages];
+  const failed = new Set<number>();
   const results: T[] = [];
 
   async function drain(): Promise<void> {
     const reader = await start();
     signal.addEventListener('abort', reader.stop);
+    let page = queue.shift();
     try {
-      for (let page = queue.shift(); page !== undefined && !signal.aborted; page = queue.shift()) {
+      for (; page !== undefined && !signal.aborted; page = queue.shift()) {
         results.push(await reader.read(page));
         onProgress(results.length, pages.length);
+      }
+    } catch {
+      if (page !== undefined && !failed.has(page)) {
+        failed.add(page);
+        queue.unshift(page);
       }
     } finally {
       signal.removeEventListener('abort', reader.stop);
       reader.stop();
     }
+    if (queue.length > 0 && !signal.aborted) await drain();
   }
 
   // A terminated worker never settles its job, so a cancel ends the wait here.

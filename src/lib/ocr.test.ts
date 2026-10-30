@@ -61,6 +61,7 @@ describe('readInParallel', () => {
     return { start, stopped, started: () => started };
   };
   const signal = new AbortController().signal;
+  const fail = () => Promise.reject(new Error('RuntimeError: Aborted(OOM)'));
 
   it('reads every page, reports progress and ends every worker', async () => {
     const { start, stopped } = readers(async (page) => page);
@@ -71,6 +72,20 @@ describe('readInParallel', () => {
     expect(pages.sort()).toEqual([1, 2, 3, 4]);
     expect(progress).toEqual([1, 2, 3, 4]);
     expect(stopped.sort()).toEqual([1, 2]);
+  });
+
+  it('reads a failed page once more with a new worker', async () => {
+    const { start, stopped } = readers(async (page, reader) =>
+      page === 2 && reader === 1 ? fail() : page,
+    );
+    await expect(readInParallel([1, 2, 3], 1, start, signal, () => {})).resolves.toEqual([1, 2, 3]);
+    expect(stopped).toEqual([1, 2]);
+  });
+
+  it('leaves a page that fails twice to the backend and reads the rest', async () => {
+    const { start, started } = readers(async (page) => (page === 2 ? fail() : page));
+    await expect(readInParallel([1, 2, 3], 1, start, signal, () => {})).resolves.toEqual([1, 3]);
+    expect(started()).toBe(3);
   });
 
   it('leaves the pages to the other workers when one cannot start', async () => {
