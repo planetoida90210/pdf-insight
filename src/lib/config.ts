@@ -12,6 +12,8 @@ export const SCAN_IMAGE_SHARE = 0.5; // SCAN_IMAGE_SHARE
 export const OCR_LANGS = 'pol+eng'; // setting OCR_LANG
 export const OCR_DPI = 200; // OCR_SCALE in backend/app/ocr.py
 export const MAX_RENDER_PIXELS = 9_000_000; // MAX_RENDER_PIXELS in backend/app/ocr.py
+export const OCR_NOISE_CONFIDENCE = 50; // NOISE_CONFIDENCE in backend/app/ocr.py
+export const OCR_SURE_CONFIDENCE = 90; // SURE_CONFIDENCE in backend/app/ocr.py
 
 // Each tesseract.js worker holds a WASM heap of about 100 MB.
 export const MAX_OCR_WORKERS = 6;

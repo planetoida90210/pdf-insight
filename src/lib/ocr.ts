@@ -6,6 +6,8 @@ import {
   OCR_DPI,
   OCR_LANGS,
   OCR_MIN_CHARS,
+  OCR_NOISE_CONFIDENCE,
+  OCR_SURE_CONFIDENCE,
   SCAN_IMAGE_SHARE,
   SCAN_TEXT_CHARS,
 } from './config';
@@ -27,6 +29,15 @@ export function needsOcr({ text, imageShare }: PageContent): boolean {
     unmapped * 2 > chars.length ||
     (imageShare >= SCAN_IMAGE_SHARE && chars.length < SCAN_TEXT_CHARS)
   );
+}
+
+// The percentage of words read at OCR_SURE_CONFIDENCE among those that are not noise, which
+// decides whether the backend has vision read the page: page_confidence in backend/app/ocr.py.
+export function pageConfidence(confidences: number[]): number {
+  const words = confidences.filter((confidence) => confidence >= OCR_NOISE_CONFIDENCE);
+  if (words.length === 0) return 0;
+  const sure = words.filter((confidence) => confidence >= OCR_SURE_CONFIDENCE);
+  return (100 * sure.length) / words.length;
 }
 
 // One core stays free for the page.
@@ -97,10 +108,14 @@ async function recognize(
         const page = await pdf.getPage(number);
         const { width, height } = page.getViewport({ scale: 1 });
         const canvas = await renderPageImage(page, ocrScale(width, height));
-        const { data } = await worker.recognize(canvas);
+        const { data } = await worker.recognize(canvas, {}, { blocks: true });
         canvas.width = 0;
         page.cleanup();
-        results.push({ page: number, text: data.text, confidence: data.confidence });
+        const words = (data.blocks ?? []).flatMap((block) =>
+          block.paragraphs.flatMap((paragraph) => paragraph.lines.flatMap((line) => line.words)),
+        );
+        const confidence = pageConfidence(words.map((word) => word.confidence));
+        results.push({ page: number, text: data.text, confidence });
         onProgress(results.length, pages.length);
       }
     } finally {

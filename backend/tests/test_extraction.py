@@ -7,7 +7,7 @@ from app import extraction
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
 from app.extraction import Extraction, extract_pdf, needs_ocr
-from app.ocr import MAX_RENDER_PIXELS, OCR_SCALE, render_page
+from app.ocr import MAX_RENDER_PIXELS, OCR_SCALE, page_confidence, render_page
 from app.schema import OcrPage
 from tests.pdfs import (
     as_form_xobject,
@@ -88,6 +88,13 @@ def test_flags_visible_instructions_as_injection() -> None:
 )
 def test_needs_ocr(text: str, image_share: float, expected: bool) -> None:
     assert needs_ocr(text, image_share, min_chars=25) is expected
+
+
+def test_page_confidence_is_the_share_of_sure_words_among_those_that_are_not_noise() -> None:
+    assert page_confidence([96, 95, 93, 86, 40, 12, 0]) == 75
+    assert page_confidence([96, 95, 93, 91]) == 100
+    assert page_confidence([30, 12]) == 0
+    assert page_confidence([]) == 0
 
 
 def test_scan_under_a_short_text_layer_is_read_by_ocr(monkeypatch: pytest.MonkeyPatch) -> None:

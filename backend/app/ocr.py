@@ -20,6 +20,11 @@ OCR_SCALE = 200 / 72
 # About A4 at 300 DPI. Larger pages render at a lower scale, so a huge page box cannot
 # allocate gigabytes for one bitmap.
 MAX_RENDER_PIXELS = 9_000_000
+# Words read under NOISE_CONFIDENCE are mostly stamps, signatures and specks that Tesseract took
+# for text; clean scans have them too. A word read at SURE_CONFIDENCE or more is almost always
+# right.
+NOISE_CONFIDENCE = 50
+SURE_CONFIDENCE = 90
 
 
 def render_scale(page: pdfium.PdfPage, scale: float) -> float:
@@ -33,8 +38,20 @@ def render_page(page: pdfium.PdfPage, scale: float) -> Image.Image:
     return image.convert("RGB")
 
 
+def page_confidence(confidences: list[float]) -> float:
+    """The percentage of a page's words read at SURE_CONFIDENCE, among the words that are not
+    noise; 0 when there are none. Same measure as pageConfidence in src/lib/ocr.ts.
+
+    The mean word confidence cannot tell a blurred photo, read with a few confident mistakes,
+    from a clean scan whose stamp adds noise words."""
+    words = [confidence for confidence in confidences if confidence >= NOISE_CONFIDENCE]
+    if not words:
+        return 0.0
+    return 100 * sum(confidence >= SURE_CONFIDENCE for confidence in words) / len(words)
+
+
 def tesseract(image: Image.Image, lang: str) -> tuple[str, float]:
-    """Text with Tesseract's line breaks, plus the mean word confidence (0 when nothing is read)."""
+    """Text with Tesseract's line breaks, plus its page_confidence."""
     data = pytesseract.image_to_data(image, lang=lang, output_type=pytesseract.Output.DICT)
     lines: dict[tuple[int, int, int], list[str]] = {}
     confidences: list[float] = []
@@ -46,7 +63,7 @@ def tesseract(image: Image.Image, lang: str) -> tuple[str, float]:
         lines.setdefault(line, []).append(word.strip())
         confidences.append(confidence)
     text = "\n".join(" ".join(words) for words in lines.values())
-    return text, sum(confidences) / len(confidences) if confidences else 0.0
+    return text, page_confidence(confidences)
 
 
 def transcribe(vision: OpenRouter, image: Image.Image, timeout: float) -> str:
