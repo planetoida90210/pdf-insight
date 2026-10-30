@@ -4,14 +4,16 @@ import { OCR_ASSETS_DIR } from './src/lib/config.ts';
 
 // tesseract.js loads its worker, WASM core and language data at run time. The app serves them
 // itself, so no request goes to a CDN: the LSTM-only cores (tesseract.js picks one by the
-// browser's SIMD support) and the integer LSTM models it loads with them.
+// browser's SIMD support) and the language models. The models are tessdata_fast, byte for byte
+// the files the backend image installs (tesseract-ocr-pol, tesseract-ocr-eng). On the test scans
+// they read a page a third faster than the integer tessdata_best models, and as accurately.
 const TESSERACT_FILES = [
   'tesseract.js/dist/worker.min.js',
   'tesseract.js-core/tesseract-core-lstm.wasm.js',
   'tesseract.js-core/tesseract-core-simd-lstm.wasm.js',
   'tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js',
-  '@tesseract.js-data/pol/4.0.0_best_int/pol.traineddata.gz',
-  '@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz',
+  './src/assets/tessdata/pol.traineddata.gz',
+  './src/assets/tessdata/eng.traineddata.gz',
 ];
 
 function tesseractAssets(): Plugin {

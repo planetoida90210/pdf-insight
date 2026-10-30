@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     ocr_lang: str = "pol+eng"
     ocr_min_chars: int = 25
     # An OCR page under this confidence (ocr.page_confidence) goes to vision.
-    ocr_min_confidence: float = 88
+    ocr_min_confidence: float = 85
     vision_fallback: bool = True
     # Pages per upload that vision transcribes, all at once: each holds a rendered page and its
     # PNG in the extraction worker's memory.
