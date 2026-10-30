@@ -20,6 +20,14 @@ MAX_TOKENS = 16_000
 TIMEOUT_STATUSES = {408, 504}
 
 
+class ContentFilterError(ApiError):
+    """The provider's content filter withheld the answer; another provider may give it."""
+
+    def __init__(self, provider: str | None) -> None:
+        super().__init__(ErrorCode.AI_INVALID_RESPONSE)
+        self.provider = provider
+
+
 class OpenRouter:
     def __init__(self, client: httpx2.Client, model: str, charge: Charge | None = None) -> None:
         self._client = client
@@ -39,11 +47,14 @@ class OpenRouter:
         image_png: bytes | None = None,
         json_schema: dict[str, Any] | None = None,
         timeout: float | None = None,
+        avoid: str | None = None,
     ) -> str:
-        """Returns the answer text; provider failures raise ApiError (AI_UNAVAILABLE or TIMEOUT).
+        """Returns the answer text; provider failures raise ApiError (AI_UNAVAILABLE or TIMEOUT)
+        and a content filter's refusal raises ContentFilterError.
 
         Every call takes one unit of the budget; DAILY_LIMIT once it is used up, and always
-        without one. `timeout` (seconds) replaces LLM_TIMEOUT_SECONDS for this call.
+        without one. `timeout` (seconds) replaces LLM_TIMEOUT_SECONDS for this call. `avoid` is
+        a provider name, as OpenRouter reports it, not to route this call to.
         """
         if self._charge is None or not self._charge():
             logger.error("daily LLM call limit reached")
@@ -63,6 +74,8 @@ class OpenRouter:
             # Route only to provider endpoints that support every parameter sent here.
             "provider": {"require_parameters": True},
         }
+        if avoid is not None:
+            body["provider"]["ignore"] = [avoid]
         if json_schema is not None:
             body["response_format"] = {
                 "type": "json_schema",
@@ -125,6 +138,9 @@ def _answer_text(data: dict[str, Any]) -> str:
         usage.get("prompt_tokens"),
         usage.get("completion_tokens"),
     )
+    if choice.get("finish_reason") == "content_filter":
+        provider = data.get("provider")
+        raise ContentFilterError(provider if isinstance(provider, str) else None)
     content = (choice.get("message") or {}).get("content")
     return content if isinstance(content, str) else ""
 

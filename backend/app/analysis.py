@@ -10,7 +10,7 @@ from app.config import Settings
 from app.errors import ApiError, ErrorCode, WarningCode, warning
 from app.extraction import Extraction
 from app.grounding import ground_analysis
-from app.llm import PROVIDER, OpenRouter
+from app.llm import PROVIDER, ContentFilterError, OpenRouter
 from app.prompts import (
     ANALYZE_TASK,
     REDUCE_TASK,
@@ -97,12 +97,21 @@ def _ask_each(llm: OpenRouter, chunks: list[str], deadline: float) -> list[LlmAn
 def _ask(llm: OpenRouter, task: str, document: str, deadline: float) -> LlmAnalysis:
     prompt = document_prompt(task, document)
     errors: list[str] = []
+    refused_by: str | None = None
     for _ in range(ATTEMPTS):
         if time.monotonic() > deadline:
             raise ApiError(ErrorCode.TIMEOUT)
-        raw = llm.generate(
-            system=SYSTEM_PROMPT, prompt=prompt + retry_note(errors), json_schema=LLM_JSON_SCHEMA
-        )
+        try:
+            raw = llm.generate(
+                system=SYSTEM_PROMPT,
+                prompt=prompt + retry_note(errors),
+                json_schema=LLM_JSON_SCHEMA,
+                avoid=refused_by,
+            )
+        except ContentFilterError as refusal:
+            # The same provider would filter the same document again; the model did nothing wrong.
+            errors, refused_by = [], refusal.provider
+            continue
         analysis, errors = parse_analysis(raw, document)
         if analysis is not None:
             return analysis
