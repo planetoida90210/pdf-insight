@@ -47,6 +47,16 @@ def test_daily_llm_limits_cap_each_client_and_the_service() -> None:
     assert limits.budget_for("a").hit() is True
 
 
+def test_a_budget_taken_before_midnight_counts_against_the_new_day() -> None:
+    day = [date(2026, 10, 29)]
+    limits = DailyLlmLimits(service_limit=10, client_limit=1, today=lambda: day[0])
+    held = limits.budget_for("a")
+    assert held.hit()
+    day[0] = date(2026, 10, 30)
+    assert held.hit()
+    assert limits.budget_for("a").hit() is False
+
+
 def spend(budget: LlmBudget, calls: int) -> list[bool]:
     return [budget.hit() for _ in range(calls)]
 

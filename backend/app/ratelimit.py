@@ -5,10 +5,10 @@ import math
 import time
 from collections import deque
 from collections.abc import Callable
-from ctypes import c_int
+from ctypes import Array, c_int
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from multiprocessing.sharedctypes import Synchronized
+from multiprocessing.sharedctypes import SynchronizedArray
 
 from starlette.requests import Request
 
@@ -53,21 +53,27 @@ def utc_today() -> date:
 class LlmBudget:
     """The LLM calls one client may still make today.
 
-    The counts live in shared memory and the budget is passed to the extraction worker started
-    for the request, so the worker's vision calls draw from it as well.
+    Each count is a [UTC day, calls] pair in shared memory that the first call of a new day
+    resets. The budget is passed to the extraction worker started for the request, so the
+    worker's vision calls draw from it as well.
     """
 
-    service: "Synchronized[int]"  # calls made today by every client; its lock guards both
-    client: c_int  # calls made today by this client
+    service: "SynchronizedArray[int]"  # every client's calls; its lock guards both pairs
+    client: "Array[c_int]"  # this client's calls
     service_limit: int
     client_limit: int
+    today: Callable[[], date] = utc_today
 
     def hit(self) -> bool:
+        day = self.today().toordinal()
         with self.service.get_lock():
-            if self.service.value >= self.service_limit or self.client.value >= self.client_limit:
+            for count in (self.service, self.client):
+                if count[0] != day:
+                    count[0], count[1] = day, 0
+            if self.service[1] >= self.service_limit or self.client[1] >= self.client_limit:
                 return False
-            self.service.value += 1
-            self.client.value += 1
+            self.service[1] += 1
+            self.client[1] += 1
             return True
 
 
@@ -81,19 +87,23 @@ class DailyLlmLimits:
         self.service_limit = service_limit
         self.client_limit = client_limit
         self.today = today
-        self._day = today()
-        self._service = CONTEXT.Value("i", 0)
+        self._day = today().toordinal()
+        self._service = CONTEXT.Array("i", [self._day, 0])
         # No lock per client: the service count's lock guards them all.
-        self._clients: dict[str, c_int] = {}
+        self._clients: dict[str, Array[c_int]] = {}
 
     def budget_for(self, client: str) -> LlmBudget:
+        day = self.today().toordinal()
         with self._service.get_lock():
-            if (day := self.today()) != self._day:
-                self._day, self._service.value, self._clients = day, 0, {}
+            if day != self._day:
+                # Requests that started yesterday may still be running with their client's
+                # pair, so yesterday's pairs stay; older ones are dropped.
+                self._day = day
+                self._clients = {ip: c for ip, c in self._clients.items() if c[0] >= day - 1}
             if client not in self._clients:
-                self._clients[client] = CONTEXT.Value("i", 0, lock=False)
+                self._clients[client] = CONTEXT.Array("i", [day, 0], lock=False)
             counter = self._clients[client]
-        return LlmBudget(self._service, counter, self.service_limit, self.client_limit)
+        return LlmBudget(self._service, counter, self.service_limit, self.client_limit, self.today)
 
 
 # DigitalOcean App Platform puts the client address in this header. Its X-Forwarded-For names
