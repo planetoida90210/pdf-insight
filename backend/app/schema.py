@@ -34,6 +34,9 @@ IsoDate = Annotated[
     AfterValidator(_calendar_date),
 ]
 PageNumber = Annotated[int, Field(ge=1)]
+LanguageCode = Annotated[str, Field(pattern=r"^[a-z]{2}$")]
+# The browser's schema (Zod) counts UTF-16 code units, so the server cuts file names to this many.
+FILE_NAME_MAX = 255
 DocumentType = Literal["faktura", "umowa", "oferta", "raport", "inne"]
 
 
@@ -48,9 +51,9 @@ class ApiModel(BaseModel):
 
 
 class DocumentInfo(ApiModel):
-    file_name: Annotated[str, StringConstraints(min_length=1, max_length=255)]
+    file_name: Annotated[str, StringConstraints(min_length=1, max_length=FILE_NAME_MAX)]
     pages: PageNumber
-    language: Annotated[str, Field(pattern=r"^[a-z]{2}$")]
+    language: LanguageCode
     type: DocumentType
     title: NonEmptyStr | None
     date: IsoDate | None
@@ -149,7 +152,7 @@ DOCUMENT_TYPE_CODES = (
 
 # The model fills only these fields; fileName, pages, warnings and meta come from the backend.
 class LlmDocument(ApiModel):
-    language: Annotated[str, Field(pattern=r"^[a-z]{2}$")]
+    language: LanguageCode
     type: Annotated[DocumentType, Field(description=DOCUMENT_TYPE_CODES)]
     title: NonEmptyStr | None
     date: IsoDate | None

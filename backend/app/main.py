@@ -22,7 +22,7 @@ from app.errors import ApiError, ErrorCode
 from app.extraction import Extraction, read_pdf
 from app.llm import OpenRouter, create_llm
 from app.ratelimit import DailyLlmLimits, SlidingWindowLimiter, client_ip
-from app.schema import AnalysisResult, AnalyzeRequest, ExtractResponse
+from app.schema import FILE_NAME_MAX, AnalysisResult, AnalyzeRequest, ExtractResponse
 from app.upload import read_ocr_upload, read_pdf_upload
 from app.worker import run_isolated
 
@@ -34,8 +34,6 @@ MULTIPART_OVERHEAD = 64 * 1024
 # One extraction with OCR peaks near 300 MiB (parser process plus Tesseract), so a second one
 # would not fit in a 512 MiB instance; on one shared vCPU it would not finish sooner either.
 EXTRACT_CONCURRENCY = 1
-# In UTF-16 code units: the length the browser's schema (Zod) counts.
-FILE_NAME_MAX = 255
 # The API answers JSON only: nothing in a response may be rendered, framed, sniffed or cached.
 SECURITY_HEADERS = {
     "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
