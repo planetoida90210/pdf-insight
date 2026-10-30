@@ -18,6 +18,10 @@ export function badgesForPage(result: AnalysisResult, page: number): PageBadge[]
   return badges;
 }
 
+export function pageLabel(page: number): string {
+  return `Strona ${page}`;
+}
+
 export function pageElementId(page: number): string {
   return `page-${page}`;
 }

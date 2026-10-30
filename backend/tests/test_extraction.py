@@ -5,11 +5,11 @@ import pypdfium2.raw as pdfium_raw
 import pytest
 from PIL import Image
 
-from app import extraction
+from app import extraction, textlayer
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
-from app.extraction import Extraction, extract_pdf, needs_ocr
-from app.ocr import MAX_RENDER_PIXELS, OCR_SCALE, page_confidence, render_page
+from app.extraction import Extraction, extract_pdf
+from app.ocr import MAX_RENDER_PIXELS, OCR_SCALE, needs_ocr, page_confidence, render_page
 from app.schema import OcrPage
 from tests.pdfs import (
     as_form_xobject,
@@ -75,8 +75,8 @@ def test_a_thin_glyph_inside_its_own_stroke_is_visible() -> None:
     page = Image.new("L", (40, 20), 255)
     page.paste(100, (10, 9, 20, 11))
     box = pdfium_raw.FS_RECTF(left=11, top=10.8, right=19, bottom=9.6)
-    assert extraction._glyph_visible(box, lambda x, y: (x, y), page)
-    assert not extraction._glyph_visible(box, lambda x, y: (x + 20, y), page)
+    assert textlayer._glyph_visible(box, lambda x, y: (x, y), page)
+    assert not textlayer._glyph_visible(box, lambda x, y: (x + 20, y), page)
 
 
 def test_flags_visible_instructions_as_injection() -> None:

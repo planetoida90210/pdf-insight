@@ -1,12 +1,5 @@
 from app.cache import TtlCache
-
-
-class FakeClock:
-    def __init__(self) -> None:
-        self.now = 0.0
-
-    def __call__(self) -> float:
-        return self.now
+from tests.fakes import FakeClock
 
 
 def test_entries_expire_after_ttl() -> None:

@@ -7,18 +7,11 @@ from starlette.requests import Request
 from app.errors import ApiError
 from app.ratelimit import Allowance, DailyLlmLimits, SlidingWindowLimiter, client_ip
 from app.worker import run_isolated
-
-
-class FakeClock:
-    def __init__(self) -> None:
-        self.now = 1000.0
-
-    def __call__(self) -> float:
-        return self.now
+from tests.fakes import FakeClock
 
 
 def test_sliding_window_blocks_then_frees_slot() -> None:
-    clock = FakeClock()
+    clock = FakeClock(1000.0)
     limiter = SlidingWindowLimiter(limit=2, window=60, clock=clock)
     assert limiter.hit("a") is None
     clock.now += 10
@@ -30,7 +23,7 @@ def test_sliding_window_blocks_then_frees_slot() -> None:
 
 
 def test_sliding_window_forgets_idle_keys() -> None:
-    clock = FakeClock()
+    clock = FakeClock(1000.0)
     limiter = SlidingWindowLimiter(limit=1, window=60, clock=clock)
     limiter.hit("a")
     clock.now += 61
