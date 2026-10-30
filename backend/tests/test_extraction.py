@@ -8,8 +8,8 @@ from PIL import Image
 from app import extraction
 from app.config import Settings
 from app.errors import ApiError, ErrorCode
-from app.extraction import Extraction, extract_pdf, needs_ocr
-from app.ocr import MAX_RENDER_PIXELS, OCR_SCALE, page_confidence, render_page
+from app.extraction import Extraction, extract_pdf
+from app.ocr import MAX_RENDER_PIXELS, OCR_SCALE, needs_ocr, page_confidence, render_page
 from app.schema import OcrPage
 from tests.pdfs import (
     as_form_xobject,

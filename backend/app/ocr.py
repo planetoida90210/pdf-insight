@@ -1,8 +1,9 @@
-"""Page rendering and reading text from a page image: Tesseract, or a vision model."""
+"""Which pages need OCR, page rendering, and reading a page image: Tesseract or a vision model."""
 
 import io
 import logging
 import math
+import re
 
 import pypdfium2 as pdfium
 import pytesseract
@@ -25,6 +26,14 @@ MAX_RENDER_PIXELS = 9_000_000
 # right.
 NOISE_CONFIDENCE = 50
 SURE_CONFIDENCE = 90
+# A page this much covered by images, with less text than SCAN_TEXT_CHARS, is a scan with a
+# stamped header or page number on top: its content is in the image.
+SCAN_IMAGE_SHARE = 0.5
+SCAN_TEXT_CHARS = 200
+# Glyphs whose font has no Unicode mapping: pdfium and pdf.js give their raw character codes,
+# mostly control codes, and the visible text has U+FFFD for them. A text layer made mostly of
+# them is unreadable.
+UNMAPPED = re.compile(r"[\x00-\x1f\x7f-\x9f\ufffd]")
 
 
 def render_scale(page: pdfium.PdfPage, scale: float) -> float:
@@ -36,6 +45,18 @@ def render_scale(page: pdfium.PdfPage, scale: float) -> float:
 def render_page(page: pdfium.PdfPage, scale: float) -> Image.Image:
     image: Image.Image = page.render(scale=render_scale(page, scale)).to_pil()
     return image.convert("RGB")
+
+
+def needs_ocr(text: str, image_share: float, min_chars: int) -> bool:
+    """Too little text, an unreadable text layer, or a scan under a short text overlay. Same rule
+    as needsOcr in src/lib/ocr.ts."""
+    chars = "".join(text.split())
+    unmapped = sum(len(match) for match in UNMAPPED.findall(chars))
+    return (
+        len(chars) < min_chars
+        or unmapped * 2 > len(chars)
+        or (image_share >= SCAN_IMAGE_SHARE and len(chars) < SCAN_TEXT_CHARS)
+    )
 
 
 def page_confidence(confidences: list[float]) -> float:

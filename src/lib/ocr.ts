@@ -20,7 +20,8 @@ export type OcrPage = { page: number; text: string; confidence: number };
 const UNMAPPED = /[\p{Cc}\uFFFD]/gu;
 const PDF_UNITS_PER_INCH = 72;
 
-// The backend's rule: too little text, an unreadable text layer, or a scan under a short one.
+// Too little text, an unreadable text layer, or a scan under a short one: needs_ocr in
+// backend/app/ocr.py.
 export function needsOcr({ text, imageShare }: PageContent): boolean {
   const chars = text.replace(/\s/g, '');
   const unmapped = chars.match(UNMAPPED)?.length ?? 0;

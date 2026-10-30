@@ -2,7 +2,6 @@
 
 import heapq
 import logging
-import re
 import threading
 import time
 from collections.abc import Callable
@@ -19,7 +18,7 @@ from app.config import Settings
 from app.errors import ApiError, ErrorCode, WarningCode, warning
 from app.injection import find_injection
 from app.llm import OpenRouter, create_llm
-from app.ocr import OCR_SCALE, render_page, render_scale, tesseract, transcribe
+from app.ocr import OCR_SCALE, UNMAPPED, needs_ocr, render_page, render_scale, tesseract, transcribe
 from app.prompts import PAGE_MARKER, PAGE_SEPARATOR
 from app.ratelimit import Charge
 from app.schema import AnalysisWarning, OcrPage, PageInfo
@@ -35,14 +34,6 @@ MIN_LUMINANCE_SPREAD = 15
 MIN_GLYPH_SIZE = 1
 # A glyph box is checked over at least this many pixels in each direction.
 MIN_GLYPH_PIXELS = 4
-# A page this much covered by images, with less text than SCAN_TEXT_CHARS, is a scan with a
-# stamped header or page number on top: its content is in the image.
-SCAN_IMAGE_SHARE = 0.5
-SCAN_TEXT_CHARS = 200
-# Glyphs whose font has no Unicode mapping: pdfium and pdf.js give their raw character codes,
-# mostly control codes, and the visible text has U+FFFD for them. A text layer made mostly of
-# them is unreadable.
-UNMAPPED = re.compile(r"[\x00-\x1f\x7f-\x9f\ufffd]")
 HYPHEN_AT_LINE_END = 0x2
 # The web process kills the worker EXTRACT_TIMEOUT_SECONDS after starting it. Vision calls end
 # this much earlier, so the worker still sends its result back in time.
@@ -217,17 +208,6 @@ def _transcribe_unsure(
                 page.info = PageInfo(
                     page=number, method="vision", chars=len(transcript), confidence=None
                 )
-
-
-def needs_ocr(text: str, image_share: float, min_chars: int) -> bool:
-    """Too little text, an unreadable text layer, or a scan under a short text overlay."""
-    chars = "".join(text.split())
-    unmapped = sum(len(match) for match in UNMAPPED.findall(chars))
-    return (
-        len(chars) < min_chars
-        or unmapped * 2 > len(chars)
-        or (image_share >= SCAN_IMAGE_SHARE and len(chars) < SCAN_TEXT_CHARS)
-    )
 
 
 def _image_share(page: pdfium.PdfPage) -> float:
