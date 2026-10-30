@@ -29,7 +29,7 @@ Zod → widok, JSON, historia          walidacja Pydantic, 1 retry, grounding
 - **Prompt injection.** Treść dokumentu idzie do modelu jako dane w znaczniku z losowym id; system prompt zabrania
   wykonywania instrukcji z dokumentu; regex zgłasza podejrzane frazy; odpowiedź to wyłącznie JSON wg schematu.
 - **Grounding.** Kwoty i daty, których nie ma w tekście źródłowym, są usuwane (z ostrzeżeniem).
-- **OCR per strona, w przeglądarce.** Serwer ma 1 współdzielony vCPU (Tesseract 3-5 s na stronę), więc skany czyta
+- **OCR per strona, w przeglądarce.** Serwer ma 1 współdzielony vCPU (Tesseract ~2,6 s na stronę), więc skany czyta
   tesseract.js (`pol+eng`) w kilku workerach przeglądarki i wysyła tekst razem z PDF. O tym, która strona wymaga OCR
   (mało tekstu, znaki bez Unicode, obraz pod krótkim tekstem), decyduje serwer; strony bez tekstu z przeglądarki czyta
   sam Tesseractem. Strony, które OCR odczytał niepewnie (`OCR_MIN_CONFIDENCE`), czyta model z obrazu, do
@@ -77,5 +77,5 @@ Pozostałe limity (rozmiar, strony, OCR, rate limit) z wartościami domyślnymi:
 ## Znane ograniczenia
 
 - Limity i cache są w pamięci jednej repliki; restart je zeruje.
-- Skan, którego nie odczyta przeglądarka, czyta serwer (3-5 s na stronę); powyżej ~20 stron kończy się `TIMEOUT`.
+- Skan, którego nie odczyta przeglądarka, czyta serwer (~2,6 s na stronę); powyżej ~30 stron kończy się `TIMEOUT`.
 - Tekst dokumentu trafia do OpenRouter i dalej do dostawcy modelu.
