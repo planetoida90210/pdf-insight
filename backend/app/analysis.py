@@ -137,12 +137,15 @@ def _warnings(
 
 
 def _quoted(quote: str, warnings: list[AnalysisWarning]) -> bool:
-    """Whether a warning already quotes text that overlaps the quote: one contains the other,
-    ignoring case and spacing."""
+    """Whether a warning already quotes the quote, ignoring case and spacing. A quote that only
+    contains another snippet repeats it only when that snippet is an injection warning too: a
+    short hidden-text snippet ("e") is inside almost any quote."""
     folded = _fold(quote)
     return any(
-        snippet in folded or folded in snippet
-        for snippet in (_fold(w.snippet) for w in warnings if w.snippet)
+        folded in _fold(w.snippet)
+        or (w.code == WarningCode.INJECTION_SUSPECTED and _fold(w.snippet) in folded)
+        for w in warnings
+        if w.snippet
     )
 
 
